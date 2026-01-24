@@ -9,30 +9,22 @@ export const analyzeManual = async (
   history: Message[],
   activeBase?: KnowledgeBase
 ): Promise<{ text: string; sources?: any[] }> => {
-  // Inicializujeme klientskú inštanciu priamo pred volaním, aby sme mali najčerstvejší kľúč z dialógu
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   
-  // Model 'gemini-3-pro-image-preview' je vyžadovaný pre stabilitu pri použití Google Search grounding
-  const modelName = 'gemini-3-pro-image-preview';
+  if (!process.env.API_KEY || process.env.API_KEY.length < 5) {
+    throw new Error("API_KEY_REQUIRED");
+  }
 
-  const systemInstruction = `Si elitný elektroinžinier so špecializáciou na revízie a projektovanie.
-Máš prístup k dokumentácii v zložke: ${activeBase?.name?.toUpperCase() || 'VŠEOBECNÉ'}.
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  const modelName = 'gemini-3-flash-preview';
 
-TVOJA ÚLOHA:
-- Ak ťa používateľ požiada o úpravu zapojenia, navrhni riešenie.
-- VŽDY použi Mermaid.js (v bloku \`\`\`mermaid) pre vizuálne schémy.
-- Komponenty označuj EPLAN štandardom (napr. -K1, -S1, -F1).
-
-PRAVIDLÁ ANALÝZY (${mode}):
-1. SCHEMATIC: Extrakcia svoriek a prepojení.
-2. LOGIC: Postupnosť spínania a bezpečnosť.
-3. SETTINGS: Parametre a konfigurácia.
-
-Odpovedaj v slovenčine, technicky a stručne. Ak používaš informácie z webu, uveď zdroje.`;
+  const systemInstruction = `Si elitný elektroinžinier. Práve analyzuješ dokumentáciu v zložke ${activeBase?.name || 'Všeobecné'}.
+Máš k dispozícii ${manuals.length} dokumentov. 
+Cieľ: Poskytnúť technickú radu, schému (Mermaid) alebo parametre.
+Režim: ${mode}. Odpovedaj stručne a slovensky.`;
 
   const chatHistory = history
-    .slice(-8)
-    .filter(m => m.id !== 'welcome' && !m.id.startsWith('err-'))
+    .slice(-6)
+    .filter(m => !m.id.startsWith('err-'))
     .map(m => ({
       role: m.role === 'user' ? 'user' : 'model',
       parts: [{ text: m.content }]
@@ -45,38 +37,24 @@ Odpovedaj v slovenčine, technicky a stručne. Ak používaš informácie z webu
     }
   }));
   
-  const currentRequestContent = { 
-    role: 'user', 
-    parts: [
-      ...manualParts,
-      { text: prompt }
-    ] 
-  };
-
   try {
     const response = await ai.models.generateContent({
       model: modelName,
-      contents: [...chatHistory, currentRequestContent] as any,
+      contents: [
+        ...chatHistory,
+        { role: 'user', parts: [...manualParts, { text: prompt }] }
+      ] as any,
       config: {
         systemInstruction,
-        temperature: 0.15,
-        tools: [{ googleSearch: {} }]
+        temperature: 0.2,
       }
     });
 
-    const text = response.text || "Model nevrátil žiadny text.";
-    
-    const sources = response.candidates?.[0]?.groundingMetadata?.groundingChunks
-      ?.filter((chunk: any) => chunk.web)
-      ?.map((chunk: any) => ({
-        title: chunk.web.title,
-        uri: chunk.web.uri
-      }));
-
-    return { text, sources };
+    const text = response.text || "AI neodpovedala.";
+    return { text };
   } catch (err: any) {
-    console.error("Gemini SDK Call Failed:", err);
-    if (err.message?.includes("Requested entity was not found") || err.message?.includes("API_KEY")) {
+    console.error("Gemini Error:", err);
+    if (err.message?.includes("API key") || err.message?.includes("401") || err.message?.includes("403")) {
       throw new Error("API_KEY_REQUIRED");
     }
     throw err;
