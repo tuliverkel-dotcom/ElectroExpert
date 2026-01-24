@@ -1,49 +1,65 @@
 
 import { GoogleGenAI } from "@google/genai";
-import { ManualFile, AnalysisMode } from "../types";
+import { ManualFile, AnalysisMode, Message, KnowledgeBase } from "../types";
 
 export const analyzeManual = async (
   prompt: string, 
   manuals: ManualFile[], 
-  mode: AnalysisMode
+  mode: AnalysisMode,
+  history: Message[],
+  activeBase?: KnowledgeBase
 ): Promise<string | undefined> => {
-  // V tomto prostredí používame priamo process.env.API_KEY
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-  
   const modelName = 'gemini-3-pro-preview';
 
-  let systemInstruction = `Si špičkový elektroinžinier a technický poradca so špecializáciou na priemyselnú automatizáciu, elektroinštalácie a programovanie PLC/smart zariadení.
-Vašou úlohou je analyzovať poskytnuté obrázky alebo texty manuálov a odpovedať na technické otázky používateľa.
+  const systemInstruction = `Si elitný elektroinžinier so špecializáciou na revízie a projektovanie v EPLAN.
+Máš prístup k dokumentácii v zložke: ${activeBase?.name.toUpperCase()}.
 
-Môžeš byť v troch módoch, aktuálny mód: ${mode}.
+TVOJA ÚLOHA PRI NÁVRHU ZMIEN:
+- Ak ťa používateľ požiada o úpravu zapojenia (napr. "Pridaj tlačidlo", "Zmeň logiku stopky"), navrhni riešenie.
+- NAVRHNI VIZUÁLNY DRAFT: Vždy keď navrhuješ zmenu zapojenia, použi Mermaid.js kód (v bloku \`\`\`mermaid).
+- Používaj syntax "graph TD" alebo "graph LR".
+- Komponenty označuj EPLAN štandardom (napr. -K1 pre relé, -S1 pre spínač, -F1 pre istič).
+- Napr. "L1 --- -F1[Istič 6A] --- -S1[STOP] --- -K1[Cievka]"
 
-1. SCHEMATIC: Zameraj sa na svorkovnice, zapojenie fáz, nulákov, zeme, vstupy a výstupy (DI, DO, AI, AO). Ak vidíš schému, popíš presne kam čo zapojiť.
-2. LOGIC: Zameraj sa na fungovanie zariadenia. Ako prebieha štart, čo sa stane pri chybe, ako komunikuje (Modbus, KNX, DALI, etc.).
-3. SETTINGS: Zameraj sa na konfiguračné menu, registre, parametre v tabuľkách. Odporuč konkrétne hodnoty ak vieš.
+PRAVIDLÁ ANALÝZY:
+1. SCHEMATIC: Extrakcia svoriek z PDF schém.
+2. LOGIC: Sekvencie a chybové stavy.
+3. SETTINGS: Parametre.
 
-Pravidlá:
-- Odpovedaj v slovenčine.
-- Buď stručný, ale technicky presný.
-- Ak niečo v manuáli nevidíš, priznaj to a nefantazíruj.
-- Používaj Markdown pre lepšiu čitateľnosť (odrážky, tabuľky, tučné písmo).`;
+Dôležité: Keďže nevieš priamo meniť PDF súbor, tvoj Mermaid draft slúži ako predloha pre používateľa, ktorú môže implementovať v EPLANe.
 
-  const parts: any[] = manuals.map(manual => ({
+Odpovedaj v slovenčine, technicky a presne.`;
+
+  const chatContents = history
+    .filter(m => m.id !== 'welcome')
+    .map(m => ({
+      role: m.role === 'user' ? 'user' : 'model',
+      parts: [{ text: m.content }]
+    }));
+
+  const currentParts: any[] = manuals.map(manual => ({
     inlineData: {
       mimeType: manual.type,
       data: manual.base64
     }
   }));
+  
+  currentParts.push({ text: prompt });
 
-  parts.push({ text: prompt });
+  const contents = [
+    ...chatContents,
+    { role: 'user', parts: currentParts }
+  ];
 
   try {
     const response = await ai.models.generateContent({
       model: modelName,
-      contents: { parts },
+      contents: contents,
       config: {
         systemInstruction,
-        temperature: 0.4,
-        thinkingConfig: { thinkingBudget: 4096 }
+        temperature: 0.2,
+        tools: [{ googleSearch: {} }]
       }
     });
 
