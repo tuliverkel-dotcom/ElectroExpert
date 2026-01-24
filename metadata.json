@@ -1,0 +1,7 @@
+{
+  "name": "ElectroExpert AI",
+  "description": "Profesionálny nástroj na analýzu elektro manuálov, generovanie schém a konfiguráciu nastavení pomocou AI.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
