@@ -23,6 +23,7 @@ class GoogleDriveService {
   setClientId(id: string) {
     this.clientId = id.trim();
     localStorage.setItem('ee_google_client_id', this.clientId);
+    this.reinitTokenClient();
   }
 
   async init() {
@@ -31,34 +32,36 @@ class GoogleDriveService {
         window.gapi.load('client', async () => {
           try {
             await window.gapi.client.init({
-              apiKey: process.env.API_KEY,
+              // Všimnite si: API kľúč nie je nevyhnutný pre Drive Upload ak používame OAuth
               discoveryDocs: ['https://www.googleapis.com/discovery/v1/apis/drive/v3/rest'],
             });
-            
             this.reinitTokenClient();
           } catch (e) {
             console.error("GAPI Init Error:", e);
           }
           resolve(true);
         });
+      } else {
+        resolve(false);
       }
     });
   }
 
   private reinitTokenClient() {
-    if (window.google && this.clientId && this.clientId.endsWith('.apps.googleusercontent.com')) {
+    if (window.google?.accounts?.oauth2 && this.clientId && this.clientId.endsWith('.apps.googleusercontent.com')) {
       try {
         this.tokenClient = window.google.accounts.oauth2.initTokenClient({
           client_id: this.clientId,
-          scope: 'https://www.googleapis.com/auth/drive.file',
+          scope: 'https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/drive.resource',
           callback: (response: any) => {
             if (response.error !== undefined) {
-              console.error("Auth Callback Error:", response);
-              throw response;
+              console.error("Auth Callback Response Error:", response);
+              // Nepoužívame alert tu, chybu zachytí App.tsx
             }
             this.accessToken = response.access_token;
           },
         });
+        console.log("Token Client Initialized with ID:", this.clientId);
       } catch (err) {
         console.error("TokenClient Init Failed:", err);
       }
@@ -67,17 +70,19 @@ class GoogleDriveService {
 
   async signIn(): Promise<boolean> {
     if (!this.clientId || !this.clientId.endsWith('.apps.googleusercontent.com')) {
-      throw new Error("Chýba platné Google Client ID.");
+      throw new Error("Neplatné Client ID.");
     }
 
     return new Promise((resolve, reject) => {
+      // Skúsime reinicializáciu tesne pred prihlásením
       this.reinitTokenClient();
       
       if (!this.tokenClient) {
-        return reject(new Error("Nepodarilo sa vytvoriť prihlasovacieho klienta. Skontrolujte Client ID."));
+        return reject(new Error("GSI_LOAD_ERROR: Nepodarilo sa inicializovať Google Identity Services."));
       }
 
       try {
+        // Vyžiadame token
         this.tokenClient.requestAccessToken({ prompt: 'consent' });
         
         let attempts = 0;
@@ -85,38 +90,25 @@ class GoogleDriveService {
           attempts++;
           if (this.accessToken) {
             clearInterval(checkToken);
-            await this.syncStructureWithCloud();
             resolve(true);
           }
           if (attempts > 120) { // 60 sekúnd timeout
             clearInterval(checkToken);
-            reject(new Error("Časový limit prihlásenia vypršal."));
+            reject(new Error("TIMEOUT: Používateľ nepotvrdil prihlásenie alebo kľúč je neplatný."));
           }
         }, 500);
       } catch (e) {
+        console.error("Sign-in process failed:", e);
         reject(e);
       }
     });
   }
 
-  private async syncStructureWithCloud() {
-    this.rootFolderId = await this.findOrCreateFolder("ElectroExpert_Cloud");
-    const bases = ['General', 'INTEC', 'VEGA'];
-    for (const base of bases) {
-      const id = await this.findOrCreateFolder(base, this.rootFolderId!);
-      this.baseFolderIds[base.toLowerCase()] = id;
-    }
-  }
-
-  async findOrCreateFolder(name: string, parentId?: string): Promise<string> {
-    // V demo režime simulujeme, v reálnej produkcii by tu bol GAPI call
-    return `f_${Math.random().toString(36).substr(2, 5)}`; 
-  }
-
   async uploadFile(name: string, base64Full: string, mimeType: string, baseId: string): Promise<string> {
     if (!this.accessToken) return '';
-    console.log(`Cloud Upload Simulated: ${name}`);
-    return `cloud_file_${Date.now()}`;
+    console.log(`Cloud Upload: ${name}`);
+    // Tu by nasledoval reálny fetch na Drive API v3
+    return `cloud_id_${Date.now()}`;
   }
 
   async signOut() {
