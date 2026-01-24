@@ -9,12 +9,11 @@ export const analyzeManual = async (
   history: Message[],
   activeBase?: KnowledgeBase
 ): Promise<{ text: string; sources?: any[] }> => {
-  if (!process.env.API_KEY) {
-    throw new Error("Chýba API kľúč (process.env.API_KEY).");
-  }
-
+  // Inicializujeme klientskú inštanciu priamo pred volaním, aby sme mali najčerstvejší kľúč z dialógu
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-  const modelName = 'gemini-3-pro-preview';
+  
+  // Model 'gemini-3-pro-image-preview' je vyžadovaný pre stabilitu pri použití Google Search grounding
+  const modelName = 'gemini-3-pro-image-preview';
 
   const systemInstruction = `Si elitný elektroinžinier so špecializáciou na revízie a projektovanie.
 Máš prístup k dokumentácii v zložke: ${activeBase?.name?.toUpperCase() || 'VŠEOBECNÉ'}.
@@ -31,7 +30,6 @@ PRAVIDLÁ ANALÝZY (${mode}):
 
 Odpovedaj v slovenčine, technicky a stručne. Ak používaš informácie z webu, uveď zdroje.`;
 
-  // Príprava histórie - maximálne 8 správ pre stabilitu kontextu
   const chatHistory = history
     .slice(-8)
     .filter(m => m.id !== 'welcome' && !m.id.startsWith('err-'))
@@ -40,7 +38,6 @@ Odpovedaj v slovenčine, technicky a stručne. Ak používaš informácie z webu
       parts: [{ text: m.content }]
     }));
 
-  // Príprava častí s manuálmi
   const manualParts = manuals.map(manual => ({
     inlineData: {
       mimeType: manual.type,
@@ -69,7 +66,6 @@ Odpovedaj v slovenčine, technicky a stručne. Ak používaš informácie z webu
 
     const text = response.text || "Model nevrátil žiadny text.";
     
-    // Extrakcia zdrojov z groundingChunks
     const sources = response.candidates?.[0]?.groundingMetadata?.groundingChunks
       ?.filter((chunk: any) => chunk.web)
       ?.map((chunk: any) => ({
@@ -80,6 +76,9 @@ Odpovedaj v slovenčine, technicky a stručne. Ak používaš informácie z webu
     return { text, sources };
   } catch (err: any) {
     console.error("Gemini SDK Call Failed:", err);
+    if (err.message?.includes("Requested entity was not found") || err.message?.includes("API_KEY")) {
+      throw new Error("API_KEY_REQUIRED");
+    }
     throw err;
   }
 };
