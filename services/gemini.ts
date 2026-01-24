@@ -9,7 +9,10 @@ export const analyzeManual = async (
   history: Message[],
   activeBase?: KnowledgeBase
 ): Promise<{ text: string; sources?: any[] }> => {
-  // Priama inicializácia podľa pravidiel SDK
+  if (!process.env.API_KEY) {
+    throw new Error("Chýba API kľúč (process.env.API_KEY).");
+  }
+
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   const modelName = 'gemini-3-pro-preview';
 
@@ -28,14 +31,16 @@ PRAVIDLÁ ANALÝZY (${mode}):
 
 Odpovedaj v slovenčine, technicky a stručne. Ak používaš informácie z webu, uveď zdroje.`;
 
-  const chatContents = history
-    .slice(-10)
-    .filter(m => m.id !== 'welcome')
+  // Príprava histórie - maximálne 8 správ pre stabilitu kontextu
+  const chatHistory = history
+    .slice(-8)
+    .filter(m => m.id !== 'welcome' && !m.id.startsWith('err-'))
     .map(m => ({
       role: m.role === 'user' ? 'user' : 'model',
       parts: [{ text: m.content }]
     }));
 
+  // Príprava častí s manuálmi
   const manualParts = manuals.map(manual => ({
     inlineData: {
       mimeType: manual.type,
@@ -43,36 +48,38 @@ Odpovedaj v slovenčine, technicky a stručne. Ak používaš informácie z webu
     }
   }));
   
-  const contents = [
-    ...chatContents,
-    { 
-      role: 'user', 
-      parts: [
-        ...manualParts,
-        { text: prompt }
-      ] 
-    }
-  ];
+  const currentRequestContent = { 
+    role: 'user', 
+    parts: [
+      ...manualParts,
+      { text: prompt }
+    ] 
+  };
 
-  const response = await ai.models.generateContent({
-    model: modelName,
-    contents: contents,
-    config: {
-      systemInstruction,
-      temperature: 0.1,
-      tools: [{ googleSearch: {} }]
-    }
-  });
+  try {
+    const response = await ai.models.generateContent({
+      model: modelName,
+      contents: [...chatHistory, currentRequestContent] as any,
+      config: {
+        systemInstruction,
+        temperature: 0.15,
+        tools: [{ googleSearch: {} }]
+      }
+    });
 
-  const text = response.text || "AI nevrátilo textovú odpoveď.";
-  
-  // Extrakcia zdrojov z groundingChunks
-  const sources = response.candidates?.[0]?.groundingMetadata?.groundingChunks
-    ?.filter((chunk: any) => chunk.web)
-    ?.map((chunk: any) => ({
-      title: chunk.web.title,
-      uri: chunk.web.uri
-    }));
+    const text = response.text || "Model nevrátil žiadny text.";
+    
+    // Extrakcia zdrojov z groundingChunks
+    const sources = response.candidates?.[0]?.groundingMetadata?.groundingChunks
+      ?.filter((chunk: any) => chunk.web)
+      ?.map((chunk: any) => ({
+        title: chunk.web.title,
+        uri: chunk.web.uri
+      }));
 
-  return { text, sources };
+    return { text, sources };
+  } catch (err: any) {
+    console.error("Gemini SDK Call Failed:", err);
+    throw err;
+  }
 };
