@@ -3,16 +3,27 @@ import React, { useState, useRef, useEffect } from 'react';
 import { ManualFile, Message, AnalysisMode, SavedProject, KnowledgeBase } from './types';
 import { analyzeManual } from './services/gemini';
 import { getAllManualsFromDB, saveManualToDB, deleteManualFromDB } from './services/db';
+import { driveService } from './services/googleDrive';
 import Sidebar from './components/Sidebar';
 import ChatInterface from './components/ChatInterface';
 import ManualViewer from './components/ManualViewer';
 import LoginGate from './components/LoginGate';
-import { MAX_FILE_SIZE_MB } from './constants';
 
 const App: React.FC = () => {
   const [isLocked, setIsLocked] = useState(true);
   const [apiKey, setApiKey] = useState(localStorage.getItem('ee_api_key') || '');
   const [showKeyInput, setShowKeyInput] = useState(!apiKey);
+  const [driveStatus, setDriveStatus] = useState<'off' | 'on' | 'loading'>('off');
+  const [syncingFiles, setSyncingFiles] = useState<Set<string>>(new Set());
+  
+  const [knowledgeBases, setKnowledgeBases] = useState<KnowledgeBase[]>(() => {
+    const saved = localStorage.getItem('ee_knowledge_bases');
+    return saved ? JSON.parse(saved) : [
+      { id: 'general', name: 'Základné', icon: '⚡' },
+      { id: 'intec', name: 'Intec', icon: '🏭' },
+      { id: 'vega', name: 'Vega', icon: '🛰️' }
+    ];
+  });
   
   const [activeBaseId, setActiveBaseId] = useState<string>('general');
   const [allManuals, setAllManuals] = useState<ManualFile[]>([]);
@@ -20,7 +31,7 @@ const App: React.FC = () => {
     {
       id: 'welcome',
       role: 'assistant',
-      content: 'Vitajte. Nahrajte manuály elektro zariadení a opýtajte sa ma na čokoľvek.',
+      content: 'ElectroExpert pripravený. Súbory sa automaticky ukladajú lokálne aj do Cloudu (ak je pripojený).',
       timestamp: Date.now(),
     },
   ]);
@@ -29,16 +40,64 @@ const App: React.FC = () => {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
+    localStorage.setItem('ee_knowledge_bases', JSON.stringify(knowledgeBases));
+  }, [knowledgeBases]);
+
+  useEffect(() => {
     if (!isLocked) {
       getAllManualsFromDB().then(setAllManuals);
+      driveService.init().then(() => {
+        if (localStorage.getItem('ee_google_client_id')) {
+          setDriveStatus('off');
+        }
+      });
     }
   }, [isLocked]);
 
+  const handleAddBase = () => {
+    const name = prompt("Názov nového priečinka:");
+    if (name) {
+      const newBase: KnowledgeBase = {
+        id: name.toLowerCase().replace(/\s+/g, '-'),
+        name: name,
+        icon: '📁'
+      };
+      setKnowledgeBases([...knowledgeBases, newBase]);
+      setActiveBaseId(newBase.id);
+    }
+  };
+
+  const handleDeleteBase = (id: string) => {
+    if (id === 'general') return;
+    if (confirm(`Zmazať priečinok "${knowledgeBases.find(b => b.id === id)?.name}"?`)) {
+      setKnowledgeBases(knowledgeBases.filter(b => b.id !== id));
+      setActiveBaseId('general');
+    }
+  };
+
+  const handleDriveConnect = async () => {
+    setDriveStatus('loading');
+    try {
+      let clientId = localStorage.getItem('ee_google_client_id');
+      if (!clientId) {
+        clientId = prompt("Vložte Google Client ID (z Google Console):");
+        if (clientId) driveService.setClientId(clientId);
+      }
+      const success = await driveService.signIn();
+      setDriveStatus(success ? 'on' : 'off');
+    } catch (e) {
+      setDriveStatus('off');
+      alert("Pripojenie zlyhalo.");
+    }
+  };
+
   const saveKey = (key: string) => {
     const trimmed = key.trim();
-    localStorage.setItem('ee_api_key', trimmed);
-    setApiKey(trimmed);
-    setShowKeyInput(false);
+    if (trimmed.length > 10) {
+      localStorage.setItem('ee_api_key', trimmed);
+      setApiKey(trimmed);
+      setShowKeyInput(false);
+    }
   };
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -46,6 +105,9 @@ const App: React.FC = () => {
     if (!files) return;
 
     for (const file of Array.from(files)) {
+      const tempId = Math.random().toString(36).substr(2, 9);
+      setSyncingFiles(prev => new Set(prev).add(tempId));
+
       const base64 = await new Promise<string>((resolve) => {
         const reader = new FileReader();
         reader.onload = () => resolve((reader.result as string).split(',')[1]);
@@ -53,7 +115,7 @@ const App: React.FC = () => {
       });
 
       const manual: ManualFile = {
-        id: Math.random().toString(36).substr(2, 9),
+        id: tempId,
         name: file.name,
         type: file.type,
         base64,
@@ -62,6 +124,16 @@ const App: React.FC = () => {
 
       await saveManualToDB(manual);
       setAllManuals(prev => [...prev, manual]);
+
+      if (driveStatus === 'on') {
+        await driveService.uploadFile(manual.name, manual.base64, manual.type, manual.baseId);
+      }
+      
+      setSyncingFiles(prev => {
+        const next = new Set(prev);
+        next.delete(tempId);
+        return next;
+      });
     }
   };
 
@@ -84,10 +156,9 @@ const App: React.FC = () => {
       setMessages((prev) => [...prev, { 
         id: 'err-' + Date.now(), 
         role: 'assistant', 
-        content: `❌ **Chyba:** ${error.message === 'NEPLATNY_KLUC' ? 'Váš API kľúč nie je správny.' : error.message}`, 
+        content: `❌ **Chyba:** ${error.message}`, 
         timestamp: Date.now() 
       }]);
-      if (error.message === 'NEPLATNY_KLUC') setShowKeyInput(true);
     } finally {
       setIsAnalyzing(false);
     }
@@ -96,36 +167,42 @@ const App: React.FC = () => {
   if (isLocked) return <LoginGate onUnlock={() => setIsLocked(false)} />;
 
   return (
-    <div className="flex flex-col h-screen bg-slate-900 text-slate-100 font-sans">
-      {/* API Key Bar */}
+    <div className="flex flex-col h-screen bg-slate-900 text-slate-100 font-sans selection:bg-blue-500/30">
       {showKeyInput && (
-        <div className="bg-blue-600 p-2 flex flex-col md:flex-row items-center justify-center gap-4 z-[60] shadow-2xl">
-          <span className="text-[10px] font-bold uppercase tracking-wider">⚠️ AI vyžaduje kľúč pre fungovanie:</span>
-          <div className="flex gap-2 w-full md:w-auto">
+        <div className="bg-blue-600 p-2 flex items-center justify-center gap-4 z-[60] shadow-2xl">
+          <span className="text-[10px] font-black uppercase tracking-tighter">AI Engine:</span>
+          <div className="flex gap-2">
             <input 
               type="password" 
-              placeholder="Vložte Gemini API kľúč..." 
-              className="bg-white text-slate-900 px-3 py-1 rounded text-xs flex-1 md:w-64"
+              placeholder="Vložte API kľúč..." 
+              className="bg-white/10 text-white px-3 py-1 rounded border border-white/20 text-xs w-64 outline-none focus:bg-white focus:text-slate-900"
               onKeyDown={(e) => e.key === 'Enter' && saveKey((e.target as HTMLInputElement).value)}
-              onBlur={(e) => saveKey(e.target.value)}
             />
-            <a href="https://aistudio.google.com/app/apikey" target="_blank" className="text-[10px] underline hover:text-white mt-1">Získať kľúč zadarmo</a>
           </div>
         </div>
       )}
 
-      <header className="bg-slate-800 border-b border-slate-700 p-4 flex justify-between items-center shadow-lg">
-        <h1 className="text-xl font-black italic">Electro<span className="text-blue-500">Expert</span></h1>
-        <div className="flex gap-2">
-           <button onClick={() => setShowKeyInput(!showKeyInput)} className="text-[9px] font-bold border border-slate-600 px-2 py-1 rounded hover:bg-slate-700 transition-colors">
-             {apiKey ? 'ZMENIŤ KĽÚČ' : 'NASTAVIŤ KĽÚČ'}
-           </button>
-           <div className="flex bg-slate-950 p-1 rounded-lg">
+      <header className="bg-slate-800 border-b border-slate-700 p-4 flex justify-between items-center shadow-2xl relative z-10">
+        <div className="flex items-center gap-4">
+          <h1 className="text-xl font-black italic tracking-tighter">Electro<span className="text-blue-500">Expert</span></h1>
+          <button 
+            onClick={handleDriveConnect}
+            className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-[10px] font-bold transition-all ${
+              driveStatus === 'on' ? 'bg-green-500/10 text-green-400 border border-green-500/20' : 'bg-slate-700 text-slate-400'
+            }`}
+          >
+            <div className={`w-2 h-2 rounded-full ${driveStatus === 'on' ? 'bg-green-500 animate-pulse' : 'bg-slate-500'}`}></div>
+            {driveStatus === 'on' ? 'DISK: PRIPOJENÝ' : 'PRIPOJIŤ DISK'}
+          </button>
+        </div>
+
+        <div className="flex items-center gap-3">
+           <div className="flex bg-slate-950 p-1 rounded-xl border border-slate-700">
              {['SCHEMATIC', 'LOGIC', 'SETTINGS'].map((mode) => (
                <button
                  key={mode}
                  onClick={() => setCurrentMode(mode as AnalysisMode)}
-                 className={`px-3 py-1 rounded text-[9px] font-black transition-all ${currentMode === mode ? 'bg-blue-600 text-white' : 'text-slate-500'}`}
+                 className={`px-4 py-1.5 rounded-lg text-[9px] font-black transition-all ${currentMode === mode ? 'bg-blue-600 text-white' : 'text-slate-500 hover:text-slate-300'}`}
                >
                  {mode}
                </button>
@@ -144,13 +221,15 @@ const App: React.FC = () => {
           onLoadProject={() => {}}
           onDeleteProject={() => {}}
           currentProjectId={null}
-          knowledgeBases={[{id: 'general', name: 'Manuály', icon: '📂'}]}
+          knowledgeBases={knowledgeBases}
           activeBaseId={activeBaseId}
           onSelectBase={setActiveBaseId}
-          onAddBase={() => {}}
+          onAddBase={handleAddBase}
+          onDeleteBase={handleDeleteBase}
+          syncingFiles={syncingFiles}
         />
         <div className="flex-1 flex flex-col md:flex-row overflow-hidden">
-          <ChatInterface messages={messages} onSendMessage={handleSendMessage} isAnalyzing={isAnalyzing} activeManualsCount={allManuals.length} />
+          <ChatInterface messages={messages} onSendMessage={handleSendMessage} isAnalyzing={isAnalyzing} activeManualsCount={allManuals.filter(m => m.baseId === activeBaseId).length} />
           <ManualViewer manuals={allManuals.filter(m => m.baseId === activeBaseId)} />
         </div>
       </main>

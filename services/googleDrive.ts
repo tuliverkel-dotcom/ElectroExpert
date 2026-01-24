@@ -15,10 +15,9 @@ declare global {
 
 class GoogleDriveService {
   private accessToken: string | null = null;
-  private rootFolderId: string | null = null;
-  private baseFolderIds: Record<string, string> = {};
   private tokenClient: any = null;
   private clientId: string | null = localStorage.getItem('ee_google_client_id');
+  private rootFolderId: string | null = null;
 
   setClientId(id: string) {
     this.clientId = id.trim();
@@ -32,7 +31,6 @@ class GoogleDriveService {
         window.gapi.load('client', async () => {
           try {
             await window.gapi.client.init({
-              // Všimnite si: API kľúč nie je nevyhnutný pre Drive Upload ak používame OAuth
               discoveryDocs: ['https://www.googleapis.com/discovery/v1/apis/drive/v3/rest'],
             });
             this.reinitTokenClient();
@@ -42,79 +40,152 @@ class GoogleDriveService {
           resolve(true);
         });
       } else {
-        resolve(false);
+        const script = document.createElement('script');
+        script.src = 'https://apis.google.com/js/api.js';
+        script.onload = () => this.init().then(resolve);
+        document.body.appendChild(script);
       }
     });
   }
 
   private reinitTokenClient() {
-    if (window.google?.accounts?.oauth2 && this.clientId && this.clientId.endsWith('.apps.googleusercontent.com')) {
-      try {
-        this.tokenClient = window.google.accounts.oauth2.initTokenClient({
-          client_id: this.clientId,
-          scope: 'https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/drive.resource',
-          callback: (response: any) => {
-            if (response.error !== undefined) {
-              console.error("Auth Callback Response Error:", response);
-              // Nepoužívame alert tu, chybu zachytí App.tsx
-            }
+    if (window.google?.accounts?.oauth2 && this.clientId) {
+      this.tokenClient = window.google.accounts.oauth2.initTokenClient({
+        client_id: this.clientId,
+        scope: 'https://www.googleapis.com/auth/drive.file',
+        callback: (response: any) => {
+          if (response.access_token) {
             this.accessToken = response.access_token;
-          },
-        });
-        console.log("Token Client Initialized with ID:", this.clientId);
-      } catch (err) {
-        console.error("TokenClient Init Failed:", err);
-      }
+            console.log("Drive Access Token Acquired");
+          }
+        },
+      });
     }
   }
 
   async signIn(): Promise<boolean> {
-    if (!this.clientId || !this.clientId.endsWith('.apps.googleusercontent.com')) {
-      throw new Error("Neplatné Client ID.");
-    }
-
-    return new Promise((resolve, reject) => {
-      // Skúsime reinicializáciu tesne pred prihlásením
-      this.reinitTokenClient();
+    if (!this.clientId) return false;
+    
+    return new Promise((resolve) => {
+      if (!this.tokenClient) this.reinitTokenClient();
+      this.tokenClient.requestAccessToken({ prompt: '' });
       
-      if (!this.tokenClient) {
-        return reject(new Error("GSI_LOAD_ERROR: Nepodarilo sa inicializovať Google Identity Services."));
-      }
-
-      try {
-        // Vyžiadame token
-        this.tokenClient.requestAccessToken({ prompt: 'consent' });
-        
-        let attempts = 0;
-        const checkToken = setInterval(async () => {
-          attempts++;
-          if (this.accessToken) {
-            clearInterval(checkToken);
-            resolve(true);
-          }
-          if (attempts > 120) { // 60 sekúnd timeout
-            clearInterval(checkToken);
-            reject(new Error("TIMEOUT: Používateľ nepotvrdil prihlásenie alebo kľúč je neplatný."));
-          }
-        }, 500);
-      } catch (e) {
-        console.error("Sign-in process failed:", e);
-        reject(e);
-      }
+      let check = setInterval(() => {
+        if (this.accessToken) {
+          clearInterval(check);
+          this.ensureRootFolder().then(() => resolve(true));
+        }
+      }, 500);
+      
+      setTimeout(() => { clearInterval(check); resolve(!!this.accessToken); }, 30000);
     });
   }
 
-  async uploadFile(name: string, base64Full: string, mimeType: string, baseId: string): Promise<string> {
-    if (!this.accessToken) return '';
-    console.log(`Cloud Upload: ${name}`);
-    // Tu by nasledoval reálny fetch na Drive API v3
-    return `cloud_id_${Date.now()}`;
+  private async ensureRootFolder(): Promise<string> {
+    if (this.rootFolderId) return this.rootFolderId;
+    
+    // Hľadáme ElectroExpert_Cloud
+    const response = await fetch(
+      `https://www.googleapis.com/drive/v3/files?q=name='ElectroExpert_Cloud' and mimeType='application/vnd.google-apps.folder' and trashed=false`,
+      { headers: { Authorization: `Bearer ${this.accessToken}` } }
+    );
+    const data = await response.json();
+    
+    if (data.files && data.files.length > 0) {
+      this.rootFolderId = data.files[0].id;
+    } else {
+      // Vytvoríme ho
+      const createResponse = await fetch('https://www.googleapis.com/drive/v3/files', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${this.accessToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          name: 'ElectroExpert_Cloud',
+          mimeType: 'application/vnd.google-apps.folder',
+        }),
+      });
+      const folder = await createResponse.json();
+      this.rootFolderId = folder.id;
+    }
+    return this.rootFolderId!;
   }
 
-  async signOut() {
-    this.accessToken = null;
-    this.rootFolderId = null;
-    this.baseFolderIds = {};
+  private async getSubfolderId(baseId: string): Promise<string> {
+    const rootId = await this.ensureRootFolder();
+    const response = await fetch(
+      `https://www.googleapis.com/drive/v3/files?q=name='${baseId}' and '${rootId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`,
+      { headers: { Authorization: `Bearer ${this.accessToken}` } }
+    );
+    const data = await response.json();
+    
+    if (data.files && data.files.length > 0) {
+      return data.files[0].id;
+    } else {
+      const createResponse = await fetch('https://www.googleapis.com/drive/v3/files', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${this.accessToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          name: baseId,
+          mimeType: 'application/vnd.google-apps.folder',
+          parents: [rootId],
+        }),
+      });
+      const folder = await createResponse.json();
+      return folder.id;
+    }
+  }
+
+  async uploadFile(name: string, base64: string, mimeType: string, baseId: string): Promise<string> {
+    if (!this.accessToken) return '';
+    
+    try {
+      const parentId = await this.getSubfolderId(baseId);
+      const metadata = {
+        name: name,
+        parents: [parentId],
+      };
+
+      const boundary = 'foo_bar_baz';
+      const delimiter = `\r\n--${boundary}\r\n`;
+      const closeDelim = `\r\n--${boundary}--`;
+
+      const reader = new FileReader();
+      const base64Data = base64;
+      
+      const multipartRequestBody =
+        delimiter +
+        'Content-Type: application/json; charset=UTF-8\r\n\r\n' +
+        JSON.stringify(metadata) +
+        delimiter +
+        'Content-Type: ' + mimeType + '\r\n' +
+        'Content-Transfer-Encoding: base64\r\n\r\n' +
+        base64Data +
+        closeDelim;
+
+      const response = await fetch(
+        'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart',
+        {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${this.accessToken}`,
+            'Content-Type': `multipart/related; boundary=${boundary}`,
+          },
+          body: multipartRequestBody,
+        }
+      );
+
+      const result = await response.json();
+      console.log(`Cloud Sync Success: ${name} -> ${result.id}`);
+      return result.id;
+    } catch (e) {
+      console.error("Cloud Upload Failed:", e);
+      return '';
+    }
   }
 }
 
