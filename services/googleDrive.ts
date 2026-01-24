@@ -84,7 +84,6 @@ class GoogleDriveService {
   private async ensureRootFolder(): Promise<string> {
     if (this.rootFolderId) return this.rootFolderId;
     
-    // Hľadáme ElectroExpert_Cloud
     const response = await fetch(
       `https://www.googleapis.com/drive/v3/files?q=name='ElectroExpert_Cloud' and mimeType='application/vnd.google-apps.folder' and trashed=false`,
       { headers: { Authorization: `Bearer ${this.accessToken}` } }
@@ -94,7 +93,6 @@ class GoogleDriveService {
     if (data.files && data.files.length > 0) {
       this.rootFolderId = data.files[0].id;
     } else {
-      // Vytvoríme ho
       const createResponse = await fetch('https://www.googleapis.com/drive/v3/files', {
         method: 'POST',
         headers: {
@@ -154,9 +152,6 @@ class GoogleDriveService {
       const delimiter = `\r\n--${boundary}\r\n`;
       const closeDelim = `\r\n--${boundary}--`;
 
-      const reader = new FileReader();
-      const base64Data = base64;
-      
       const multipartRequestBody =
         delimiter +
         'Content-Type: application/json; charset=UTF-8\r\n\r\n' +
@@ -164,7 +159,7 @@ class GoogleDriveService {
         delimiter +
         'Content-Type: ' + mimeType + '\r\n' +
         'Content-Transfer-Encoding: base64\r\n\r\n' +
-        base64Data +
+        base64 +
         closeDelim;
 
       const response = await fetch(
@@ -180,7 +175,6 @@ class GoogleDriveService {
       );
 
       const result = await response.json();
-      console.log(`Cloud Sync Success: ${name} -> ${result.id}`);
       return result.id;
     } catch (e) {
       console.error("Cloud Upload Failed:", e);
