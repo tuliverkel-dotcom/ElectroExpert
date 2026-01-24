@@ -7,23 +7,25 @@ export const analyzeManual = async (
   manuals: ManualFile[], 
   mode: AnalysisMode,
   history: Message[],
+  apiKey: string,
   activeBase?: KnowledgeBase
 ): Promise<{ text: string; sources?: any[] }> => {
   
-  if (!process.env.API_KEY || process.env.API_KEY.length < 5) {
-    throw new Error("API_KEY_REQUIRED");
+  if (!apiKey || apiKey.length < 10) {
+    throw new Error("NEPLATNY_KLUC");
   }
 
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-  const modelName = 'gemini-3-flash-preview';
+  const ai = new GoogleGenAI({ apiKey });
+  // Použijeme stabilný model flash pre najrýchlejšiu odozvu
+  const modelName = 'gemini-1.5-flash';
 
-  const systemInstruction = `Si elitný elektroinžinier. Práve analyzuješ dokumentáciu v zložke ${activeBase?.name || 'Všeobecné'}.
-Máš k dispozícii ${manuals.length} dokumentov. 
-Cieľ: Poskytnúť technickú radu, schému (Mermaid) alebo parametre.
-Režim: ${mode}. Odpovedaj stručne a slovensky.`;
+  const systemInstruction = `Si technický poradca pre elektro produkty. 
+Máš k dispozícii tieto manuály: ${manuals.map(m => m.name).join(', ')}.
+Odpovedaj stručne, technicky správne a v slovenčine.
+Ak navrhuješ zapojenie, použi Mermaid diagram v bloku \`\`\`mermaid.`;
 
   const chatHistory = history
-    .slice(-6)
+    .slice(-4)
     .filter(m => !m.id.startsWith('err-'))
     .map(m => ({
       role: m.role === 'user' ? 'user' : 'model',
@@ -50,13 +52,9 @@ Režim: ${mode}. Odpovedaj stručne a slovensky.`;
       }
     });
 
-    const text = response.text || "AI neodpovedala.";
-    return { text };
+    return { text: response.text || "AI neodpovedala." };
   } catch (err: any) {
     console.error("Gemini Error:", err);
-    if (err.message?.includes("API key") || err.message?.includes("401") || err.message?.includes("403")) {
-      throw new Error("API_KEY_REQUIRED");
-    }
-    throw err;
+    throw new Error(err.message || "Chyba komunikácie s AI");
   }
 };
