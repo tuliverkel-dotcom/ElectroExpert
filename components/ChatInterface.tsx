@@ -29,38 +29,58 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ messages, onSendMessage, 
     setInput('');
   };
 
-  // Pomocná funkcia na detekciu a vykreslenie obsahu (text + diagramy)
-  const renderMessageContent = (content: string) => {
+  const renderMessageContent = (msg: Message) => {
+    const { content, sources } = msg;
     const mermaidRegex = /```mermaid\n([\s\S]*?)```/g;
     const parts = [];
     let lastIndex = 0;
     let match;
 
     while ((match = mermaidRegex.exec(content)) !== null) {
-      // Text pred diagramom
       if (match.index > lastIndex) {
         parts.push(<span key={`text-${lastIndex}`}>{content.substring(lastIndex, match.index)}</span>);
       }
-      // Diagram
       parts.push(
         <div key={`diagram-${match.index}`} className="my-4">
           <div className="text-[10px] font-black text-blue-400 uppercase mb-2 flex items-center gap-1">
             <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M4 5a1 1 0 011-1h14a1 1 0 011 1v2a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM4 13a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H5a1 1 0 01-1-1v-6zM16 13a1 1 0 011-1h2a1 1 0 011 1v6a1 1 0 01-1 1h-2a1 1 0 01-1-1v-6z" /></svg>
-            Vizuálny návrh zapojenia
+            Technický nákres
           </div>
           <MermaidDiagram chart={match[1]} />
-          <p className="text-[9px] text-slate-500 mt-2 italic">Tento diagram môžete použiť ako predlohu pre projekt v EPLAN.</p>
         </div>
       );
       lastIndex = mermaidRegex.lastIndex;
     }
 
-    // Zvyšný text
     if (lastIndex < content.length) {
       parts.push(<span key={`text-end`}>{content.substring(lastIndex)}</span>);
     }
 
-    return parts.length > 0 ? parts : content;
+    return (
+      <>
+        <div className="text-sm whitespace-pre-wrap leading-relaxed">
+          {parts.length > 0 ? parts : content}
+        </div>
+        {sources && sources.length > 0 && (
+          <div className="mt-4 pt-3 border-t border-slate-700/50">
+            <div className="text-[9px] font-bold text-slate-500 uppercase mb-2 tracking-widest">Zdroje z webu:</div>
+            <div className="flex flex-wrap gap-2">
+              {sources.map((src, i) => (
+                <a 
+                  key={i} 
+                  href={src.uri} 
+                  target="_blank" 
+                  rel="noopener noreferrer"
+                  className="bg-slate-900/50 border border-slate-700 hover:border-blue-500 px-2 py-1 rounded text-[10px] text-blue-400 truncate max-w-[200px] transition-colors"
+                >
+                  {src.title || 'Zdroj informácie'}
+                </a>
+              ))}
+            </div>
+          </div>
+        )}
+      </>
+    );
   };
 
   return (
@@ -73,9 +93,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ messages, onSendMessage, 
               ? 'bg-blue-600 text-white rounded-tr-none' 
               : 'bg-slate-800 text-slate-200 border border-slate-700 rounded-tl-none'
             }`}>
-              <div className="text-sm whitespace-pre-wrap leading-relaxed">
-                {renderMessageContent(msg.content)}
-              </div>
+              {renderMessageContent(msg)}
               <div className={`text-[10px] mt-2 ${msg.role === 'user' ? 'text-blue-200' : 'text-slate-500'}`}>
                 {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
               </div>
@@ -90,7 +108,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ messages, onSendMessage, 
                 <div className="w-2 h-2 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
                 <div className="w-2 h-2 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
               </div>
-              <span className="text-xs text-slate-400 font-medium ml-2 italic tracking-tight">Navrhujem riešenie a draft schémy...</span>
+              <span className="text-xs text-slate-400 font-medium ml-2 italic tracking-tight">Analyzujem manuály a hľadám riešenie...</span>
             </div>
           </div>
         )}
@@ -104,7 +122,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ messages, onSendMessage, 
             value={input}
             onChange={(e) => setInput(e.target.value)}
             disabled={isAnalyzing}
-            placeholder={activeManualsCount > 0 ? "Napr. 'Navrhni zapojenie núdzového stop tlačidla...'" : "Najprv nahrajte manuály..."}
+            placeholder={activeManualsCount > 0 ? "Položte otázku k dokumentácii..." : "Nahrajte manuály do zložky..."}
             className="flex-1 bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all disabled:opacity-50 text-sm"
           />
           <button

@@ -1,17 +1,18 @@
 
-export interface ManualFile {
-  id: string;
-  name: string;
-  type: string;
-  base64: string;
-  baseId: string; // ID zložky/výrobcu, kam manuál patrí
-}
-
 export interface Message {
   id: string;
   role: 'user' | 'assistant';
   content: string;
   timestamp: number;
+  sources?: Array<{ title: string; uri: string }>;
+}
+
+export interface ManualFile {
+  id: string;
+  name: string;
+  type: string;
+  base64: string;
+  baseId: string;
 }
 
 export enum AnalysisMode {
