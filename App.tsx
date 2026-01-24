@@ -2,6 +2,7 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { ManualFile, Message, AnalysisMode, SavedProject, KnowledgeBase } from './types';
 import { analyzeManual } from './services/gemini';
+import { getAllManualsFromDB, saveManualToDB, deleteManualFromDB } from './services/db';
 import Sidebar from './components/Sidebar';
 import ChatInterface from './components/ChatInterface';
 import ManualViewer from './components/ManualViewer';
@@ -21,7 +22,7 @@ const App: React.FC = () => {
     {
       id: 'welcome',
       role: 'assistant',
-      content: 'Vitajte v ElectroExpert AI. Ak aplikácia mrzla, bolo to kvôli limitom prehliadača pri ukladaní veľkých PDF. Teraz sú dáta v bezpečí v pamäti. Ak potrebujete zmeniť zapojenie, navrhnem vám nový draft schémy.',
+      content: 'Vitajte späť. Súbory sú teraz bezpečne uložené v databáze vášho prehliadača (IndexedDB), takže aplikácia nebude mrznúť ani po nahratí veľkých PDF. Vaše manuály zostanú k dispozícii aj po reštarte stránky.',
       timestamp: Date.now(),
     },
   ]);
@@ -31,18 +32,32 @@ const App: React.FC = () => {
   const [currentProjectId, setCurrentProjectId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Načítame len metadáta, nie ťažké base64 reťazce
+  // Načítanie metadát z localStorage
   useEffect(() => {
     const storedBases = localStorage.getItem('electro_expert_bases');
     if (storedBases) setKnowledgeBases(JSON.parse(storedBases));
+    
+    const storedProjects = localStorage.getItem('electro_expert_projects');
+    if (storedProjects) setSavedProjects(JSON.parse(storedProjects));
+
+    // Načítanie reálnych súborov z IndexedDB (toto zabraňuje mrznutiu)
+    const loadManuals = async () => {
+      try {
+        const manuals = await getAllManualsFromDB();
+        setAllManuals(manuals);
+      } catch (e) {
+        console.error("Nepodarilo sa načítať databázu súborov", e);
+      }
+    };
+    loadManuals();
   }, []);
 
   useEffect(() => {
     localStorage.setItem('electro_expert_bases', JSON.stringify(knowledgeBases));
-  }, [knowledgeBases]);
+    localStorage.setItem('electro_expert_projects', JSON.stringify(savedProjects));
+  }, [knowledgeBases, savedProjects]);
 
   const activeBase = knowledgeBases.find(b => b.id === activeBaseId);
-  // Filtrujeme manuály podľa aktuálnej zložky
   const visibleManuals = allManuals.filter(m => m.baseId === 'general' || m.baseId === activeBaseId);
 
   const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -51,12 +66,12 @@ const App: React.FC = () => {
 
     Array.from(files).forEach((file: File) => {
       if (file.size > MAX_FILE_SIZE_MB * 1024 * 1024) {
-        alert(`Súbor ${file.name} je príliš veľký. Maximálna veľkosť je ${MAX_FILE_SIZE_MB}MB.`);
+        alert(`Súbor ${file.name} je príliš veľký. Maximálny limit je ${MAX_FILE_SIZE_MB}MB.`);
         return;
       }
 
       const reader = new FileReader();
-      reader.onload = (e) => {
+      reader.onload = async (e) => {
         const base64Data = e.target?.result as string;
         const newManual: ManualFile = {
           id: Math.random().toString(36).substr(2, 9),
@@ -65,12 +80,27 @@ const App: React.FC = () => {
           base64: base64Data.split(',')[1],
           baseId: activeBaseId,
         };
-        setAllManuals((prev) => [...prev, newManual]);
+        
+        // Uloženie do IndexedDB (perzistentné a plynulé)
+        try {
+          await saveManualToDB(newManual);
+          setAllManuals((prev) => [...prev, newManual]);
+        } catch (err) {
+          alert("Chyba pri ukladaní súboru do databázy.");
+        }
       };
       reader.readAsDataURL(file);
     });
-    // Reset inputu aby sa dal nahrať ten istý súbor znova
     if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  const handleRemoveManual = async (id: string) => {
+    try {
+      await deleteManualFromDB(id);
+      setAllManuals(prev => prev.filter(m => m.id !== id));
+    } catch (e) {
+      console.error("Chyba pri mazaní", e);
+    }
   };
 
   const handleSendMessage = async (text: string) => {
@@ -99,13 +129,12 @@ const App: React.FC = () => {
     } catch (error: any) {
       console.error("AI Analysis Error:", error);
       let errorMsg = 'Chyba prepojenia k AI.';
-      if (error.message?.includes('413')) errorMsg = 'Súbory sú príliš veľké pre AI analýzu. Skúste nahrať len dôležité strany.';
-      if (error.message?.includes('429')) errorMsg = 'Príliš veľa požiadaviek. Chvíľu počkajte.';
+      if (error.message?.includes('413')) errorMsg = 'Zložka obsahuje príliš veľa dát pre jednu správu. Skúste súbory rozdeliť do viacerých zložiek.';
       
       setMessages((prev) => [...prev, { 
         id: 'err-' + Date.now(), 
         role: 'assistant', 
-        content: `⚠️ ${errorMsg} (${error.message || 'Unknown error'})`, 
+        content: `⚠️ ${errorMsg} (${error.message || 'Komunikačná chyba'})`, 
         timestamp: Date.now() 
       }]);
     } finally {
@@ -115,14 +144,14 @@ const App: React.FC = () => {
 
   const saveCurrentProject = () => {
     const defaultName = `Riešenie ${activeBase?.name} - ${new Date().toLocaleDateString()}`;
-    const name = prompt(`Uložiť riešenie pod názvom (uloží sa len história správ):`, defaultName);
+    const name = prompt(`Uložiť históriu správ pod názvom:`, defaultName);
     if (!name) return;
 
     const newProject: SavedProject = {
       id: currentProjectId || Math.random().toString(36).substr(2, 9),
       name,
       baseId: activeBaseId,
-      manuals: [], // Súbory neukladáme do history kvôli výkonu
+      manuals: [], 
       messages,
       mode: currentMode,
       timestamp: Date.now()
@@ -130,7 +159,6 @@ const App: React.FC = () => {
 
     setSavedProjects(prev => [newProject, ...prev.filter(p => p.id !== newProject.id)]);
     setCurrentProjectId(newProject.id);
-    alert("Projekt bol uložený (história správ).");
   };
 
   const loadProject = (id: string) => {
@@ -189,7 +217,7 @@ const App: React.FC = () => {
         <Sidebar 
           manuals={visibleManuals} 
           onUploadClick={() => fileInputRef.current?.click()} 
-          onRemove={(id) => setAllManuals(prev => prev.filter(m => m.id !== id))}
+          onRemove={handleRemoveManual}
           onSaveProject={saveCurrentProject}
           savedProjects={savedProjects.filter(p => p.baseId === activeBaseId)}
           onLoadProject={loadProject}
