@@ -22,6 +22,7 @@ const App: React.FC = () => {
   const [activeBaseId, setActiveBaseId] = useState<string>('general');
   const [allManuals, setAllManuals] = useState<ManualFile[]>([]);
   const [isCloudSynced, setIsCloudSynced] = useState(false);
+  const [showCloudHelper, setShowCloudHelper] = useState(false);
   const [messages, setMessages] = useState<Message[]>([
     {
       id: 'welcome',
@@ -52,16 +53,18 @@ const App: React.FC = () => {
   const handleGoogleDriveSync = async () => {
     let cid = localStorage.getItem('ee_google_client_id');
     
-    // Ak ID chýba alebo je to placeholder, opýtame sa naň (Toto je Krok 5)
+    // Ak ID chýba, pýtame sa (Krok 5)
     if (!cid || cid === '' || cid.includes('YOUR_CLIENT_ID')) {
-      const msg = `KROK 5: AKTIVÁCIA CLOUDU\n\n1. Choďte do Google Cloud Console (Credentials).\n2. Skopírujte "Client ID" (končí na .apps.googleusercontent.com).\n3. Uistite sa, že v Google Console máte v "Authorized JavaScript origins" pridanú túto presnú adresu:\n   ${currentOrigin}\n\nVložte Client ID sem:`;
+      const msg = `KROK 5: AKTIVÁCIA CLOUDU\n\n1. Skopírujte "Client ID" z Google Console.\n2. Musí končiť na: .apps.googleusercontent.com\n3. Ak ste v kroku 4 nezadali túto adresu do Origins, prihlásenie zlyhá:\n${currentOrigin}\n\nVložte Client ID:`;
       
       const input = prompt(msg, "");
       if (input && input.trim().endsWith('.apps.googleusercontent.com')) {
         cid = input.trim();
         driveService.setClientId(cid);
+        // Malá pauza na prebratie nového ID
+        await new Promise(r => setTimeout(r, 300));
       } else if (input !== null) {
-        alert("Neplatný formát Client ID. Musí končiť na '.apps.googleusercontent.com'");
+        alert("Chyba: Vložený text nevyzerá ako Client ID. Musí končiť na .apps.googleusercontent.com");
         return;
       } else {
         return;
@@ -72,21 +75,27 @@ const App: React.FC = () => {
       const success = await driveService.signIn();
       if (success) {
         setIsCloudSynced(true);
+        setShowCloudHelper(false);
         setMessages(prev => [...prev, {
           id: 'sync-' + Date.now(),
           role: 'assistant',
-          content: `✅ Cloud pripojený! Vaše dokumenty sa teraz budú synchronizovať s Google Drive.`,
+          content: `✅ Cloud pripojený! Vaše dokumenty sú teraz v bezpečí na Google Drive.`,
           timestamp: Date.now()
         }]);
       }
     } catch (e: any) {
       console.error("Sync error:", e);
-      if (e.error === 'idpiframe_initialization_failed' || (e.message && e.message.includes('401'))) {
-        if (confirm("Chyba 401: Google zamietol prístup. Pravdepodobne zlé Client ID alebo chýbajúci Origin v nastaveniach Google Console. Chcete vymazať uložené ID a skúsiť znova?")) {
+      // Riešenie chyby 401
+      const is401 = e.message?.includes('401') || e.error === 'invalid_client' || e.error === 'idpiframe_initialization_failed';
+      
+      if (is401) {
+        setShowCloudHelper(true);
+        if (confirm("Chyba 401 (Invalid Client).\n\nTo znamená, že Google váš kód nepozná. Chcete vymazať uložené ID a skúsiť ho zadať znova? (Uistite sa, že kopírujete Client ID a nie Client Secret!)")) {
           localStorage.removeItem('ee_google_client_id');
+          window.location.reload();
         }
       } else {
-        alert(`Chyba pripojenia: ${e.message || "Skontrolujte konzolu prehliadača (F12)."}`);
+        alert(`Chyba: ${e.message || "Skontrolujte nastavenia v Google Console."}`);
       }
     }
   };
@@ -164,30 +173,19 @@ const App: React.FC = () => {
             </h1>
             <div className="flex items-center gap-2 mt-1.5">
               <span className={`text-[7px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded border ${isCloudSynced ? 'text-green-400 border-green-500/30 bg-green-500/5' : 'text-slate-500 border-slate-700'}`}>
-                {isCloudSynced ? 'Cloud Online' : 'Local Only'}
+                {isCloudSynced ? 'Cloud Online' : 'Workspace Offline'}
               </span>
-              <span className="text-[7px] text-slate-600 font-mono hidden sm:block">Origin: {currentOrigin}</span>
             </div>
           </div>
           
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-3">
             <button 
               onClick={handleGoogleDriveSync} 
-              className={`${isCloudSynced ? 'bg-green-600/20 text-green-400 border border-green-500/30' : 'bg-blue-600 text-white shadow-blue-900/40'} hover:scale-105 active:scale-95 px-4 py-2 rounded-xl text-[10px] font-black transition-all shadow-lg flex items-center gap-2`}
+              className={`${isCloudSynced ? 'bg-green-600/20 text-green-400 border border-green-500/30' : 'bg-blue-600 text-white shadow-blue-900/40'} hover:scale-105 active:scale-95 px-5 py-2.5 rounded-xl text-[11px] font-black transition-all shadow-lg flex items-center gap-2`}
             >
-              <div className={`w-1.5 h-1.5 rounded-full ${isCloudSynced ? 'bg-green-400 animate-pulse' : 'bg-white/50'}`}></div>
-              {isCloudSynced ? 'SYNCHRONIZÁCIA AKTÍVNA' : 'PRIPOJIŤ GOOGLE CLOUD'}
+              <div className={`w-2 h-2 rounded-full ${isCloudSynced ? 'bg-green-400 animate-pulse' : 'bg-white/50'}`}></div>
+              {isCloudSynced ? 'SYNCHRONIZÁCIA BEŽÍ' : 'PRIPOJIŤ GOOGLE CLOUD'}
             </button>
-            
-            {localStorage.getItem('ee_google_client_id') && (
-              <button 
-                onClick={() => { if(confirm("Naozaj chcete resetovať Client ID?")) { localStorage.removeItem('ee_google_client_id'); window.location.reload(); } }}
-                className="p-2 text-slate-500 hover:text-red-400 transition-colors"
-                title="Resetovať nastavenia Cloudu"
-              >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
-              </button>
-            )}
           </div>
         </div>
         
@@ -203,6 +201,22 @@ const App: React.FC = () => {
            ))}
         </div>
       </header>
+
+      {showCloudHelper && (
+        <div className="absolute top-20 left-1/2 -translate-x-1/2 w-full max-w-lg bg-red-950 border border-red-500/50 p-6 rounded-2xl z-50 shadow-2xl animate-in zoom-in-95 duration-200">
+          <h2 className="text-red-400 font-black text-sm uppercase mb-4 flex items-center gap-2">
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
+            CHYBA 401: AKO JU OPRAVIŤ?
+          </h2>
+          <div className="space-y-4 text-xs text-red-200 leading-relaxed">
+            <p><strong className="text-white uppercase">1. Kontrola v Google Console:</strong> Uistite sa, že ste vytvorili <code className="bg-black/50 px-1 rounded text-white">OAuth 2.0 Client ID</code> typu <strong className="text-white">Web Application</strong>.</p>
+            <p><strong className="text-white uppercase">2. Povolený Origin:</strong> V sekcii "Authorized JavaScript origins" musíte mať presne toto (bez lomky na konci): <br/>
+            <code className="bg-black p-2 mt-2 block rounded font-mono text-blue-400 border border-blue-500/30 select-all">{currentOrigin}</code></p>
+            <p><strong className="text-white uppercase">3. Kopírujete správny kód?</strong> Musíte skopírovať <strong className="text-white">Client ID</strong> (končí na .apps.googleusercontent.com). <span className="underline italic">Nesmie</span> to byť "Client Secret".</p>
+          </div>
+          <button onClick={() => setShowCloudHelper(false)} className="mt-6 w-full py-2 bg-red-600 hover:bg-red-500 text-white font-bold rounded-lg transition-colors">ZAVRIEŤ A SKÚSIŤ ZNOVA</button>
+        </div>
+      )}
 
       <main className="flex flex-1 overflow-hidden">
         <Sidebar 
