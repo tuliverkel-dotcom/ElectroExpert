@@ -9,11 +9,11 @@ export const analyzeManual = async (
   history: Message[]
 ): Promise<{ text: string; sources?: Array<{ title: string; uri: string }> }> => {
   
-  // Always use the named parameter for apiKey and use the latest SDK client
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
+  // Striktná inicializácia bez fallbacku na prázdny reťazec
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   
-  // Use 'gemini-3-pro-preview' for complex reasoning and technical analysis
-  const modelName = 'gemini-3-pro-preview';
+  // Prepnutie na stabilnejší model pre toto prostredie
+  const modelName = 'gemini-3-flash-preview';
 
   const systemInstruction = `Si elitný technický inžinier a expert na elektroinštalácie. 
 Tvojou úlohou je radiť používateľom na základe poskytnutých manuálov.
@@ -27,16 +27,14 @@ Pravidlá:
 
 Manuály k dispozícii: ${manuals.map(m => m.name).join(', ')}.`;
 
-  // Filter history to remove error messages and welcome message for a cleaner context
   const chatHistory = history
     .filter(m => !m.id.startsWith('err-') && m.id !== 'welcome')
-    .slice(0, -1) // Exclude the current message which is added separately
+    .slice(0, -1)
     .map(m => ({
       role: m.role === 'user' ? ('user' as const) : ('model' as const),
       parts: [{ text: m.content }]
     }));
 
-  // Prepare manual parts as inlineData for multimodal analysis
   const manualParts = manuals.map(manual => ({
     inlineData: {
       mimeType: manual.type,
@@ -45,7 +43,6 @@ Manuály k dispozícii: ${manuals.map(m => m.name).join(', ')}.`;
   }));
   
   try {
-    // Call generateContent with both model name and prompt in one request
     const response = await ai.models.generateContent({
       model: modelName,
       contents: [
@@ -61,15 +58,13 @@ Manuály k dispozícii: ${manuals.map(m => m.name).join(', ')}.`;
       config: {
         systemInstruction,
         temperature: 0.2,
-        // Enable Google Search grounding for more accurate technical information
+        // Google Search grounding ostáva zachovaný pre zdroje z webu
         tools: [{ googleSearch: {} }]
       }
     });
 
-    // Access the .text property directly (not as a method)
     const text = response.text || "Model nevrátil žiadnu odpoveď.";
     
-    // Extract grounding sources from groundingChunks to display them in the UI
     const sources: Array<{ title: string; uri: string }> = [];
     const groundingChunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks;
     if (groundingChunks) {
@@ -86,6 +81,6 @@ Manuály k dispozícii: ${manuals.map(m => m.name).join(', ')}.`;
     return { text, sources };
   } catch (err: any) {
     console.error("Gemini API Error Detail:", err);
-    throw new Error(err.message || "Nepodarilo sa získať odpoveď od AI.");
+    throw new Error(err.message || "Nepodarilo sa získať odpoveď od AI. Skontrolujte API konfiguráciu.");
   }
 };
