@@ -3,9 +3,11 @@ import React, { useState, useEffect } from 'react';
 
 interface LoginGateProps {
   onUnlock: () => void;
+  hasApiKey?: boolean;
+  onSelectKey?: () => void;
 }
 
-const LoginGate: React.FC<LoginGateProps> = ({ onUnlock }) => {
+const LoginGate: React.FC<LoginGateProps> = ({ onUnlock, hasApiKey, onSelectKey }) => {
   const [password, setPassword] = useState('');
   const [error, setError] = useState(false);
   const [isNewUser, setIsNewUser] = useState(false);
@@ -31,7 +33,7 @@ const LoginGate: React.FC<LoginGateProps> = ({ onUnlock }) => {
         alert("Heslá sa nezhodujú.");
         return;
       }
-      localStorage.setItem('ee_workspace_hash', btoa(password)); // Jednoduchý hash pre demo
+      localStorage.setItem('ee_workspace_hash', btoa(password)); 
       setIsNewUser(false);
       onUnlock();
     } else {
@@ -112,6 +114,23 @@ const LoginGate: React.FC<LoginGateProps> = ({ onUnlock }) => {
             {isNewUser ? 'Vytvoriť a vstúpiť' : 'Odomknúť systém'}
           </button>
         </form>
+
+        {!hasApiKey && onSelectKey && (
+          <div className="mt-6 p-4 bg-red-950/30 border border-red-500/30 rounded-xl text-center space-y-3">
+             <p className="text-[10px] text-red-400 font-bold uppercase tracking-tight leading-tight">
+               Pre fungovanie AI modelov Gemini 3 je potrebné vybrať API kľúč z vášho fakturačného projektu.
+             </p>
+             <button 
+               onClick={onSelectKey}
+               className="bg-red-600 hover:bg-red-500 text-white text-[10px] font-black py-2 px-4 rounded-lg transition-all shadow-lg"
+             >
+               NASTAVIŤ API KĽÚČ
+             </button>
+             <p className="text-[8px] text-slate-500 italic">
+               Viac info na <a href="https://ai.google.dev/gemini-api/docs/billing" target="_blank" className="underline">ai.google.dev/billing</a>
+             </p>
+          </div>
+        )}
 
         <div className="mt-8 pt-6 border-t border-slate-800/50 flex flex-col items-center gap-2">
           <div className="flex items-center gap-1.5">

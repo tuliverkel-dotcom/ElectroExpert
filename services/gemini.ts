@@ -9,23 +9,19 @@ export const analyzeManual = async (
   history: Message[]
 ): Promise<{ text: string; sources?: Array<{ title: string; uri: string }> }> => {
   
-  // Striktná inicializácia bez fallbacku na prázdny reťazec
+  if (!process.env.API_KEY) {
+    throw new Error("API kľúč nie je pripravený. Kliknite na 'NASTAVIŤ KĽÚČ' v hornej lište.");
+  }
+
+  // Creating a new instance right before the call to ensure the latest API key is used
+  // Upgraded to gemini-3-pro-preview for complex technical manual analysis
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-  
-  // Prepnutie na stabilnejší model pre toto prostredie
-  const modelName = 'gemini-3-flash-preview';
+  const modelName = 'gemini-3-pro-preview';
 
   const systemInstruction = `Si elitný technický inžinier a expert na elektroinštalácie. 
 Tvojou úlohou je radiť používateľom na základe poskytnutých manuálov.
 Pracuješ v režime: ${mode}.
-
-Pravidlá:
-1. Odpovedaj výhradne v slovenčine, technicky presne a stručne.
-2. Ak je to relevantné pre pochopenie zapojenia, generuj Mermaid diagram v bloku \`\`\`mermaid.
-3. Vždy sa odkazuj na konkrétne informácie z manuálov.
-4. Ak informácia v manuáli chýba, upozorni na to a navrhni bezpečný štandardný postup.
-
-Manuály k dispozícii: ${manuals.map(m => m.name).join(', ')}.`;
+Odpovedaj výhradne v slovenčine. Využívaj technické schémy (mermaid) ak je to vhodné.`;
 
   const chatHistory = history
     .filter(m => !m.id.startsWith('err-') && m.id !== 'welcome')
@@ -49,38 +45,35 @@ Manuály k dispozícii: ${manuals.map(m => m.name).join(', ')}.`;
         ...chatHistory,
         { 
           role: 'user', 
-          parts: [
-            ...manualParts, 
-            { text: prompt }
-          ] 
+          parts: [...manualParts, { text: prompt }] 
         }
       ],
       config: {
         systemInstruction,
-        temperature: 0.2,
-        // Google Search grounding ostáva zachovaný pre zdroje z webu
+        temperature: 0.1,
         tools: [{ googleSearch: {} }]
       }
     });
 
-    const text = response.text || "Model nevrátil žiadnu odpoveď.";
-    
+    const text = response.text || "Model neodpovedal.";
     const sources: Array<{ title: string; uri: string }> = [];
     const groundingChunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks;
+    
     if (groundingChunks) {
       groundingChunks.forEach((chunk: any) => {
         if (chunk.web?.uri) {
-          sources.push({
-            title: chunk.web.title || 'Zdroj z webu',
-            uri: chunk.web.uri
-          });
+          sources.push({ title: chunk.web.title || 'Zdroj', uri: chunk.web.uri });
         }
       });
     }
     
     return { text, sources };
   } catch (err: any) {
-    console.error("Gemini API Error Detail:", err);
-    throw new Error(err.message || "Nepodarilo sa získať odpoveď od AI. Skontrolujte API konfiguráciu.");
+    console.error("Gemini Error:", err);
+    // Handling specific error for invalid key
+    if (err.message?.includes("API_KEY") || err.message?.includes("not found") || err.message?.includes("Requested entity was not found")) {
+      throw new Error("Platnosť API kľúča vypršala alebo nie je nastavený. Kliknite na 'NASTAVIŤ KĽÚČ'.");
+    }
+    throw err;
   }
 };
