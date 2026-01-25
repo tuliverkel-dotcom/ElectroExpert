@@ -18,23 +18,26 @@ export const analyzeManual = async (
   }
 
   const ai = new GoogleGenAI({ apiKey });
-  
-  // Prepíname na PRO model pre maximálnu inteligenciu
   const modelName = 'gemini-3-pro-preview';
 
   const systemInstruction = `Si elitný Senior Elektro-Inžinier a Expert na Diagnostiku (Level 3 Support).
-Tvojou úlohou je analyzovať priloženú technickú dokumentáciu (PDF/Obrázky) s extrémnou presnosťou.
+Tvojou úlohou je analyzovať technickú dokumentáciu s extrémnou presnosťou.
 
 REŽIM ANALÝZY: ${mode}
 
-PRAVIDLÁ UVAŽOVANIA:
-1. DEEP SCAN: Nehľadaj len kľúčové slová. Analyzuj zapojenia, napäťové úrovne, pinouty a protokoly.
-2. STEP-BY-STEP LOGIC: Každé riešenie najprv logicky zdôvodni na základe faktov z manuálu.
-3. MERMAID DIAGRAMS: Ak navrhuješ zapojenie, VŽDY použi Mermaid syntax. Diagramy rob detailné (napr. sub-grafy pre MCU, senzory a napájanie).
-4. SEARCH GROUNDING: Ak narazíš na nejasnú súčiastku, použi Google Search na overenie jej datasheetu alebo noriem (EN/IEC).
-5. TÓN: Profesionálny, technický, stručný ale vyčerpávajúci.
+PRAVIDLÁ PRE MERMAID SCHÉMY (KRITICKÉ):
+1. VŽDY používaj úvodzovky pre texty v uzloch, napr: A["Hlavný istič 230V"]
+2. Nepoužívaj v uzloch špeciálne znaky ako (), [], {} bez úvodzoviek.
+3. Začínaj schému vždy kľúčovým slovom "graph TD" alebo "flowchart TD".
+4. Používaj subgrafy pre logické celky (napr. napájacia časť, riadiaca časť).
+5. Ak je schéma príliš komplexná, rozdeľ ju na viacero menších diagramov.
 
-Ak v manuáli chýba informácia potrebná pre bezpečné riešenie, jasne na to upozorni a navrhni merania, ktoré má technik vykonať.`;
+PROCES ANALÝZY:
+- DEEP SCAN: Hľadaj pinouty, napäťové úrovne a logické väzby.
+- STEP-BY-STEP: Každý technický krok najprv zdôvodni.
+- SEARCH: Použi Google Search na overenie nejasných komponentov.
+
+Odpovedaj výhradne v slovenčine. Ak informácia v manuáli chýba, upozorni na to.`;
 
   const chatHistory = history
     .filter(m => !m.id.startsWith('err-') && m.id !== 'welcome')
@@ -63,15 +66,15 @@ Ak v manuáli chýba informácia potrebná pre bezpečné riešenie, jasne na to
       ],
       config: {
         systemInstruction,
-        temperature: 0.3, // Nižšia teplota pre vyššiu faktickú presnosť
+        temperature: 0.1, // Minimálna kreativita = maximálna technická presnosť
         thinkingConfig: { 
-          thinkingBudget: 16384 // Pridávame "kapacitu na premýšľanie" pre zložité technické úlohy
+          thinkingBudget: 16384 
         },
         tools: [{ googleSearch: {} }]
       }
     });
 
-    const text = response.text || "AI nedokázala vygenerovať odpoveď. Skúste preformulovať otázku.";
+    const text = response.text || "AI nedokázala vygenerovať odpoveď.";
     const sources: Array<{ title: string; uri: string }> = [];
     
     const groundingChunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks;
@@ -86,10 +89,6 @@ Ak v manuáli chýba informácia potrebná pre bezpečné riešenie, jasne na to
     return { text, sources };
   } catch (err: any) {
     console.error("Gemini Pro Error:", err);
-    // Fallback na Flash ak by Pro model zlyhal (napr. kvôli kvótam)
-    if (err.message?.includes("not found") || err.message?.includes("quota")) {
-        throw new Error("Model Pro nie je dostupný. Skúste prejsť na platený API plán pre 'Thinking' funkcie.");
-    }
     throw new Error(err.message || "Chyba pri hlbokej analýze.");
   }
 };
