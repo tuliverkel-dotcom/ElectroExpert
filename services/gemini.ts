@@ -10,18 +10,17 @@ export const analyzeManual = async (
 ): Promise<{ text: string; sources?: Array<{ title: string; uri: string }> }> => {
   
   if (!process.env.API_KEY) {
-    throw new Error("API kľúč nie je pripravený. Kliknite na 'NASTAVIŤ KĽÚČ' v hornej lište.");
+    throw new Error("API kľúč nie je nastavený. Kliknite na 'NASTAVIŤ KĽÚČ'.");
   }
 
-  // Creating a new instance right before the call to ensure the latest API key is used
-  // Upgraded to gemini-3-pro-preview for complex technical manual analysis
+  // Vždy vytvoríme novú inštanciu pre zabezpečenie aktuálnosti kľúča
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   const modelName = 'gemini-3-pro-preview';
 
   const systemInstruction = `Si elitný technický inžinier a expert na elektroinštalácie. 
 Tvojou úlohou je radiť používateľom na základe poskytnutých manuálov.
-Pracuješ v režime: ${mode}.
-Odpovedaj výhradne v slovenčine. Využívaj technické schémy (mermaid) ak je to vhodné.`;
+Pracuješ v režime: ${mode}. Odpovedaj výhradne v slovenčine.
+Ak používateľ nahrá PDF alebo obrázok schémy, analyzuj ho technicky presne.`;
 
   const chatHistory = history
     .filter(m => !m.id.startsWith('err-') && m.id !== 'welcome')
@@ -55,7 +54,7 @@ Odpovedaj výhradne v slovenčine. Využívaj technické schémy (mermaid) ak je
       }
     });
 
-    const text = response.text || "Model neodpovedal.";
+    const text = response.text || "Bez odpovede.";
     const sources: Array<{ title: string; uri: string }> = [];
     const groundingChunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks;
     
@@ -70,9 +69,9 @@ Odpovedaj výhradne v slovenčine. Využívaj technické schémy (mermaid) ak je
     return { text, sources };
   } catch (err: any) {
     console.error("Gemini Error:", err);
-    // Handling specific error for invalid key
-    if (err.message?.includes("API_KEY") || err.message?.includes("not found") || err.message?.includes("Requested entity was not found")) {
-      throw new Error("Platnosť API kľúča vypršala alebo nie je nastavený. Kliknite na 'NASTAVIŤ KĽÚČ'.");
+    // Zachytenie chyby o neplatnom kľúči podľa inštrukcií
+    if (err.message?.includes("Requested entity was not found") || err.message?.includes("API_KEY")) {
+      throw new Error("Requested entity was not found. Váš API kľúč nie je platný alebo nie je z fakturovaného projektu. Prosím, nastavte ho znova.");
     }
     throw err;
   }
