@@ -1,18 +1,18 @@
 
 import { GoogleGenAI } from "@google/genai";
-import { ManualFile, AnalysisMode, Message, KnowledgeBase } from "../types";
+import { ManualFile, AnalysisMode, Message } from "../types";
 
 export const analyzeManual = async (
   prompt: string, 
   manuals: ManualFile[], 
   mode: AnalysisMode,
   history: Message[]
-): Promise<{ text: string; sources?: any[] }> => {
+): Promise<{ text: string; sources?: Array<{ title: string; uri: string }> }> => {
   
-  // Inicializácia podľa striktných pravidiel SDK
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY as string });
+  // Always use the named parameter for apiKey and use the latest SDK client
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
   
-  // Pre technickú analýzu manuálov volíme Pro model
+  // Use 'gemini-3-pro-preview' for complex reasoning and technical analysis
   const modelName = 'gemini-3-pro-preview';
 
   const systemInstruction = `Si elitný technický inžinier a expert na elektroinštalácie. 
@@ -27,17 +27,16 @@ Pravidlá:
 
 Manuály k dispozícii: ${manuals.map(m => m.name).join(', ')}.`;
 
-  // Filtrujeme históriu tak, aby sme neposielali aktuálnu správu dvakrát 
-  // a obmedzujeme počet správ kvôli veľkosti payloadu (base64 dáta sú náročné)
+  // Filter history to remove error messages and welcome message for a cleaner context
   const chatHistory = history
-    .filter(m => !m.id.startsWith('err-'))
-    .slice(0, -1) // Vynecháme poslednú správu, ktorú pridáme nižšie s manuálmi
+    .filter(m => !m.id.startsWith('err-') && m.id !== 'welcome')
+    .slice(0, -1) // Exclude the current message which is added separately
     .map(m => ({
-      role: m.role === 'user' ? 'user' : 'model',
+      role: m.role === 'user' ? ('user' as const) : ('model' as const),
       parts: [{ text: m.content }]
     }));
 
-  // Pripravíme manuály ako inline dáta
+  // Prepare manual parts as inlineData for multimodal analysis
   const manualParts = manuals.map(manual => ({
     inlineData: {
       mimeType: manual.type,
@@ -46,6 +45,7 @@ Manuály k dispozícii: ${manuals.map(m => m.name).join(', ')}.`;
   }));
   
   try {
+    // Call generateContent with both model name and prompt in one request
     const response = await ai.models.generateContent({
       model: modelName,
       contents: [
@@ -57,24 +57,35 @@ Manuály k dispozícii: ${manuals.map(m => m.name).join(', ')}.`;
             { text: prompt }
           ] 
         }
-      ] as any,
+      ],
       config: {
         systemInstruction,
         temperature: 0.2,
+        // Enable Google Search grounding for more accurate technical information
+        tools: [{ googleSearch: {} }]
       }
     });
 
-    const text = response.text;
-    if (!text) throw new Error("Model nevrátil žiadny text.");
+    // Access the .text property directly (not as a method)
+    const text = response.text || "Model nevrátil žiadnu odpoveď.";
     
-    return { text };
-  } catch (err: any) {
-    console.error("Gemini API Error Detail:", err);
-    
-    if (err.message?.includes('fetch')) {
-      throw new Error("Sieťové spojenie s AI zlyhalo. Skontrolujte veľkosť nahraných súborov.");
+    // Extract grounding sources from groundingChunks to display them in the UI
+    const sources: Array<{ title: string; uri: string }> = [];
+    const groundingChunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks;
+    if (groundingChunks) {
+      groundingChunks.forEach((chunk: any) => {
+        if (chunk.web?.uri) {
+          sources.push({
+            title: chunk.web.title || 'Zdroj z webu',
+            uri: chunk.web.uri
+          });
+        }
+      });
     }
     
+    return { text, sources };
+  } catch (err: any) {
+    console.error("Gemini API Error Detail:", err);
     throw new Error(err.message || "Nepodarilo sa získať odpoveď od AI.");
   }
 };

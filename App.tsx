@@ -2,8 +2,16 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { ManualFile, Message, AnalysisMode, SavedProject, KnowledgeBase } from './types';
 import { analyzeManual } from './services/gemini';
-import { getAllManualsFromDB, saveManualToDB, deleteManualFromDB } from './services/db';
+import { 
+  getAllManualsFromDB, 
+  saveManualToDB, 
+  deleteManualFromDB, 
+  saveProjectToDB, 
+  getAllProjectsFromDB, 
+  deleteProjectFromDB 
+} from './services/db';
 import { driveService } from './services/googleDrive';
+import { APP_VERSION } from './constants';
 import Sidebar from './components/Sidebar';
 import ChatInterface from './components/ChatInterface';
 import ManualViewer from './components/ManualViewer';
@@ -13,6 +21,8 @@ const App: React.FC = () => {
   const [isLocked, setIsLocked] = useState(true);
   const [driveStatus, setDriveStatus] = useState<'off' | 'on' | 'loading'>('off');
   const [syncingFiles, setSyncingFiles] = useState<Set<string>>(new Set());
+  const [savedProjects, setSavedProjects] = useState<SavedProject[]>([]);
+  const [currentProjectId, setCurrentProjectId] = useState<string | null>(null);
   
   const [knowledgeBases, setKnowledgeBases] = useState<KnowledgeBase[]>(() => {
     const saved = localStorage.getItem('ee_knowledge_bases');
@@ -25,14 +35,15 @@ const App: React.FC = () => {
   
   const [activeBaseId, setActiveBaseId] = useState<string>('general');
   const [allManuals, setAllManuals] = useState<ManualFile[]>([]);
-  const [messages, setMessages] = useState<Message[]>([
-    {
-      id: 'welcome',
-      role: 'assistant',
-      content: 'ElectroExpert pripravený. Analýza prebieha cez model Gemini 3 Pro. Súbory sú synchronizované lokálne aj do Cloudu.',
-      timestamp: Date.now(),
-    },
-  ]);
+  
+  const welcomeMessage: Message = {
+    id: 'welcome',
+    role: 'assistant',
+    content: 'ElectroExpert pripravený. Analýza prebieha cez model Gemini 3 Pro. Súbory sú synchronizované lokálne aj do Cloudu.',
+    timestamp: Date.now(),
+  };
+
+  const [messages, setMessages] = useState<Message[]>([welcomeMessage]);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [currentMode, setCurrentMode] = useState<AnalysisMode>(AnalysisMode.SCHEMATIC);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -44,6 +55,7 @@ const App: React.FC = () => {
   useEffect(() => {
     if (!isLocked) {
       getAllManualsFromDB().then(setAllManuals);
+      getAllProjectsFromDB().then(setSavedProjects);
       driveService.init().then(() => {
         if (localStorage.getItem('ee_google_client_id')) {
           setDriveStatus('off');
@@ -51,6 +63,16 @@ const App: React.FC = () => {
       });
     }
   }, [isLocked]);
+
+  const handleNewProject = () => {
+    if (messages.length > 1 && !currentProjectId) {
+      if (!confirm("Aktuálna konverzácia nie je uložená. Chcete začať nový problém a stratiť zmeny?")) {
+        return;
+      }
+    }
+    setMessages([{ ...welcomeMessage, timestamp: Date.now() }]);
+    setCurrentProjectId(null);
+  };
 
   const handleAddBase = () => {
     const name = prompt("Názov nového priečinka:");
@@ -93,7 +115,8 @@ const App: React.FC = () => {
     const files = e.target.files;
     if (!files) return;
 
-    for (const file of Array.from(files)) {
+    const filesToUpload = Array.from(files) as File[];
+    for (const file of filesToUpload) {
       const tempId = Math.random().toString(36).substr(2, 9);
       setSyncingFiles(prev => new Set(prev).add(tempId));
 
@@ -134,8 +157,14 @@ const App: React.FC = () => {
 
     try {
       const visibleManuals = allManuals.filter(m => m.baseId === activeBaseId);
-      const { text: responseText } = await analyzeManual(text, visibleManuals, currentMode, updatedMessages);
-      setMessages((prev) => [...prev, { id: Date.now().toString(), role: 'assistant', content: responseText, timestamp: Date.now() }]);
+      const { text: responseText, sources } = await analyzeManual(text, visibleManuals, currentMode, updatedMessages);
+      setMessages((prev) => [...prev, { 
+        id: Date.now().toString(), 
+        role: 'assistant', 
+        content: responseText, 
+        timestamp: Date.now(),
+        sources: sources 
+      }]);
     } catch (error: any) {
       setMessages((prev) => [...prev, { 
         id: 'err-' + Date.now(), 
@@ -148,13 +177,64 @@ const App: React.FC = () => {
     }
   };
 
+  const handleSaveProject = async () => {
+    if (messages.length <= 1) {
+      alert("Niet čo ukladať. Napíšte správu pre vytvorenie histórie.");
+      return;
+    }
+    const name = prompt("Názov riešenia / projektu:", currentProjectId ? savedProjects.find(p => p.id === currentProjectId)?.name : "");
+    if (!name) return;
+
+    const project: SavedProject = {
+      id: currentProjectId || Date.now().toString(),
+      name,
+      baseId: activeBaseId,
+      manuals: allManuals.filter(m => m.baseId === activeBaseId),
+      messages: messages,
+      mode: currentMode,
+      timestamp: Date.now()
+    };
+
+    await saveProjectToDB(project);
+    const updatedProjects = await getAllProjectsFromDB();
+    setSavedProjects(updatedProjects);
+    setCurrentProjectId(project.id);
+    alert("Riešenie bolo úspešne uložené.");
+  };
+
+  const handleLoadProject = (id: string) => {
+    const project = savedProjects.find(p => p.id === id);
+    if (project) {
+      setActiveBaseId(project.baseId);
+      setMessages(project.messages);
+      setCurrentMode(project.mode);
+      setCurrentProjectId(project.id);
+    }
+  };
+
+  const handleDeleteProject = async (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (confirm("Naozaj chcete zmazať toto uložené riešenie?")) {
+      await deleteProjectFromDB(id);
+      setSavedProjects(prev => prev.filter(p => p.id !== id));
+      if (currentProjectId === id) setCurrentProjectId(null);
+    }
+  };
+
   if (isLocked) return <LoginGate onUnlock={() => setIsLocked(false)} />;
 
   return (
     <div className="flex flex-col h-screen bg-slate-900 text-slate-100 font-sans selection:bg-blue-500/30">
       <header className="bg-slate-800 border-b border-slate-700 p-4 flex justify-between items-center shadow-2xl relative z-10">
         <div className="flex items-center gap-4">
-          <h1 className="text-xl font-black italic tracking-tighter">Electro<span className="text-blue-500">Expert</span></h1>
+          <div className="flex flex-col">
+            <h1 className="text-xl font-black italic tracking-tighter leading-none">
+              Electro<span className="text-blue-500">Expert</span>
+            </h1>
+            <span className="text-[9px] font-bold text-slate-500 tracking-[0.2em] mt-1 flex items-center gap-1.5 uppercase">
+              Build <span className="text-blue-400 bg-blue-400/10 px-1 rounded">{APP_VERSION}</span>
+            </span>
+          </div>
           <button 
             onClick={handleDriveConnect}
             className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-[10px] font-bold transition-all ${
@@ -186,11 +266,12 @@ const App: React.FC = () => {
           manuals={allManuals.filter(m => m.baseId === activeBaseId)} 
           onUploadClick={() => fileInputRef.current?.click()} 
           onRemove={(id) => { deleteManualFromDB(id); setAllManuals(prev => prev.filter(m => m.id !== id)); }}
-          onSaveProject={() => {}}
-          savedProjects={[]}
-          onLoadProject={() => {}}
-          onDeleteProject={() => {}}
-          currentProjectId={null}
+          onSaveProject={handleSaveProject}
+          onNewProject={handleNewProject}
+          savedProjects={savedProjects}
+          onLoadProject={handleLoadProject}
+          onDeleteProject={handleDeleteProject}
+          currentProjectId={currentProjectId}
           knowledgeBases={knowledgeBases}
           activeBaseId={activeBaseId}
           onSelectBase={setActiveBaseId}
