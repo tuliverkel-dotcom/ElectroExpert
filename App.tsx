@@ -11,8 +11,6 @@ import LoginGate from './components/LoginGate';
 
 const App: React.FC = () => {
   const [isLocked, setIsLocked] = useState(true);
-  const [apiKey, setApiKey] = useState(localStorage.getItem('ee_api_key') || '');
-  const [showKeyInput, setShowKeyInput] = useState(!apiKey);
   const [driveStatus, setDriveStatus] = useState<'off' | 'on' | 'loading'>('off');
   const [syncingFiles, setSyncingFiles] = useState<Set<string>>(new Set());
   
@@ -31,7 +29,7 @@ const App: React.FC = () => {
     {
       id: 'welcome',
       role: 'assistant',
-      content: 'ElectroExpert pripravený. Súbory sa automaticky ukladajú lokálne aj do Cloudu (ak je pripojený).',
+      content: 'ElectroExpert pripravený. Analýza prebieha cez model Gemini 3 Pro. Súbory sú synchronizované lokálne aj do Cloudu.',
       timestamp: Date.now(),
     },
   ]);
@@ -87,16 +85,7 @@ const App: React.FC = () => {
       setDriveStatus(success ? 'on' : 'off');
     } catch (e) {
       setDriveStatus('off');
-      alert("Pripojenie zlyhalo.");
-    }
-  };
-
-  const saveKey = (key: string) => {
-    const trimmed = key.trim();
-    if (trimmed.length > 10) {
-      localStorage.setItem('ee_api_key', trimmed);
-      setApiKey(trimmed);
-      setShowKeyInput(false);
+      alert("Pripojenie k Google Drive zlyhalo.");
     }
   };
 
@@ -138,11 +127,6 @@ const App: React.FC = () => {
   };
 
   const handleSendMessage = async (text: string) => {
-    if (!apiKey) {
-      setShowKeyInput(true);
-      return;
-    }
-
     const userMsg: Message = { id: Date.now().toString(), role: 'user', content: text, timestamp: Date.now() };
     const updatedMessages = [...messages, userMsg];
     setMessages(updatedMessages);
@@ -150,7 +134,7 @@ const App: React.FC = () => {
 
     try {
       const visibleManuals = allManuals.filter(m => m.baseId === activeBaseId);
-      const { text: responseText } = await analyzeManual(text, visibleManuals, currentMode, updatedMessages, apiKey);
+      const { text: responseText } = await analyzeManual(text, visibleManuals, currentMode, updatedMessages);
       setMessages((prev) => [...prev, { id: Date.now().toString(), role: 'assistant', content: responseText, timestamp: Date.now() }]);
     } catch (error: any) {
       setMessages((prev) => [...prev, { 
@@ -168,20 +152,6 @@ const App: React.FC = () => {
 
   return (
     <div className="flex flex-col h-screen bg-slate-900 text-slate-100 font-sans selection:bg-blue-500/30">
-      {showKeyInput && (
-        <div className="bg-blue-600 p-2 flex items-center justify-center gap-4 z-[60] shadow-2xl">
-          <span className="text-[10px] font-black uppercase tracking-tighter">AI Engine:</span>
-          <div className="flex gap-2">
-            <input 
-              type="password" 
-              placeholder="Vložte API kľúč..." 
-              className="bg-white/10 text-white px-3 py-1 rounded border border-white/20 text-xs w-64 outline-none focus:bg-white focus:text-slate-900"
-              onKeyDown={(e) => e.key === 'Enter' && saveKey((e.target as HTMLInputElement).value)}
-            />
-          </div>
-        </div>
-      )}
-
       <header className="bg-slate-800 border-b border-slate-700 p-4 flex justify-between items-center shadow-2xl relative z-10">
         <div className="flex items-center gap-4">
           <h1 className="text-xl font-black italic tracking-tighter">Electro<span className="text-blue-500">Expert</span></h1>
@@ -192,7 +162,7 @@ const App: React.FC = () => {
             }`}
           >
             <div className={`w-2 h-2 rounded-full ${driveStatus === 'on' ? 'bg-green-500 animate-pulse' : 'bg-slate-500'}`}></div>
-            {driveStatus === 'on' ? 'DISK: PRIPOJENÝ' : 'PRIPOJIŤ DISK'}
+            {driveStatus === 'on' ? 'CLOUD AKTÍVNY' : 'PRIPOJIŤ CLOUD'}
           </button>
         </div>
 
@@ -202,7 +172,7 @@ const App: React.FC = () => {
                <button
                  key={mode}
                  onClick={() => setCurrentMode(mode as AnalysisMode)}
-                 className={`px-4 py-1.5 rounded-lg text-[9px] font-black transition-all ${currentMode === mode ? 'bg-blue-600 text-white' : 'text-slate-500 hover:text-slate-300'}`}
+                 className={`px-4 py-1.5 rounded-lg text-[9px] font-black transition-all ${currentMode === mode ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20' : 'text-slate-500 hover:text-slate-300'}`}
                >
                  {mode}
                </button>
