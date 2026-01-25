@@ -6,26 +6,25 @@ export const analyzeManual = async (
   prompt: string, 
   manuals: ManualFile[], 
   mode: AnalysisMode,
-  history: Message[]
+  history: Message[],
+  customApiKey?: string | null
 ): Promise<{ text: string; sources?: Array<{ title: string; uri: string }> }> => {
   
-  const apiKey = process.env.API_KEY;
+  // Priorita: 1. Dynamický kľúč (z Drive), 2. Environmentálny kľúč
+  const envKey = process.env.API_KEY;
+  const apiKey = customApiKey || ((envKey && envKey !== 'undefined') ? envKey : null);
   
-  if (!apiKey || apiKey === "undefined") {
-    throw new Error("API kľúč nie je nakonfigurovaný v systéme. Prosím, nastavte ho v prostredí.");
+  if (!apiKey) {
+    throw new Error("CHÝBAJÚCI AI KĽÚČ: Pripojte Google Drive pre načítanie kľúča, alebo ho nastavte v prostredí.");
   }
 
   const ai = new GoogleGenAI({ apiKey });
-  
-  // Model Pro pre komplexné technické úlohy
-  const modelName = 'gemini-3-pro-preview';
+  const modelName = 'gemini-3-flash-preview';
 
-  const systemInstruction = `Si elitný elektro-inžinier a špecialista na technickú dokumentáciu.
-Analyzuješ priložené manuály a schémy.
-Pracuješ v režime: ${mode}. Jazyk: SLOVENČINA.
-Ak je priložený obrázok, identifikuj komponenty a ich zapojenie.
-Využívaj Google Search na kontrolu aktuálnych elektrotechnických noriem (STN, EN, IEC).
-Odpovedaj vecne, odborne a presne.`;
+  const systemInstruction = `Si špičkový elektro-inžinier. Analyzuješ technické manuály.
+Režim: ${mode}. Odpovedaj výhradne v slovenčine.
+Používaj Google Search na overenie technických noriem.
+Ak navrhuješ zapojenie, buď technicky presný a používaj Mermaid diagramy ak je to vhodné.`;
 
   const chatHistory = history
     .filter(m => !m.id.startsWith('err-') && m.id !== 'welcome')
@@ -54,12 +53,12 @@ Odpovedaj vecne, odborne a presne.`;
       ],
       config: {
         systemInstruction,
-        temperature: 0.1,
+        temperature: 0.2,
         tools: [{ googleSearch: {} }]
       }
     });
 
-    const text = response.text || "Bez odozvy od AI.";
+    const text = response.text || "AI neodpovedala.";
     const sources: Array<{ title: string; uri: string }> = [];
     
     const groundingChunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks;
@@ -74,6 +73,6 @@ Odpovedaj vecne, odborne a presne.`;
     return { text, sources };
   } catch (err: any) {
     console.error("Gemini Error:", err);
-    throw new Error(`AI Chyba: ${err.message || 'Nepodarilo sa spracovať požiadavku.'}`);
+    throw new Error(err.message || "Chyba AI komunikácie.");
   }
 };

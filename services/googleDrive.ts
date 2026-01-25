@@ -56,7 +56,6 @@ class GoogleDriveService {
         callback: (response: any) => {
           if (response.access_token) {
             this.accessToken = response.access_token;
-            console.log("Drive Access Token Acquired");
           }
         },
       });
@@ -110,6 +109,53 @@ class GoogleDriveService {
     return this.rootFolderId!;
   }
 
+  async findFile(name: string, parentId?: string): Promise<string | null> {
+    if (!this.accessToken) return null;
+    const parent = parentId || await this.ensureRootFolder();
+    const query = `name='${name}' and '${parent}' in parents and trashed=false`;
+    const response = await fetch(
+      `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(query)}&fields=files(id)`,
+      { headers: { Authorization: `Bearer ${this.accessToken}` } }
+    );
+    const data = await response.json();
+    return data.files && data.files.length > 0 ? data.files[0].id : null;
+  }
+
+  async getFileContent(fileId: string): Promise<string> {
+    const response = await fetch(
+      `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`,
+      { headers: { Authorization: `Bearer ${this.accessToken}` } }
+    );
+    return await response.text();
+  }
+
+  async saveConfig(name: string, content: string): Promise<void> {
+    if (!this.accessToken) return;
+    const rootId = await this.ensureRootFolder();
+    const existingId = await this.findFile(name, rootId);
+
+    if (existingId) {
+      await fetch(`https://www.googleapis.com/upload/drive/v3/files/${existingId}?uploadType=media`, {
+        method: 'PATCH',
+        headers: { Authorization: `Bearer ${this.accessToken}` },
+        body: content
+      });
+    } else {
+      const metadata = { name, parents: [rootId] };
+      const boundary = 'config_sync';
+      const body = `--${boundary}\r\nContent-Type: application/json\r\n\r\n${JSON.stringify(metadata)}\r\n--${boundary}\r\nContent-Type: text/plain\r\n\r\n${content}\r\n--${boundary}--`;
+      
+      await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${this.accessToken}`,
+          'Content-Type': `multipart/related; boundary=${boundary}`
+        },
+        body
+      });
+    }
+  }
+
   private async getSubfolderId(baseId: string): Promise<string> {
     const rootId = await this.ensureRootFolder();
     const response = await fetch(
@@ -143,24 +189,9 @@ class GoogleDriveService {
     
     try {
       const parentId = await this.getSubfolderId(baseId);
-      const metadata = {
-        name: name,
-        parents: [parentId],
-      };
-
-      const boundary = 'foo_bar_baz';
-      const delimiter = `\r\n--${boundary}\r\n`;
-      const closeDelim = `\r\n--${boundary}--`;
-
-      const multipartRequestBody =
-        delimiter +
-        'Content-Type: application/json; charset=UTF-8\r\n\r\n' +
-        JSON.stringify(metadata) +
-        delimiter +
-        'Content-Type: ' + mimeType + '\r\n' +
-        'Content-Transfer-Encoding: base64\r\n\r\n' +
-        base64 +
-        closeDelim;
+      const metadata = { name, parents: [parentId] };
+      const boundary = 'upload_boundary';
+      const multipartRequestBody = `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(metadata)}\r\n--${boundary}\r\nContent-Type: ${mimeType}\r\nContent-Transfer-Encoding: base64\r\n\r\n${base64}\r\n--${boundary}--`;
 
       const response = await fetch(
         'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart',

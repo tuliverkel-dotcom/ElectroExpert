@@ -19,8 +19,8 @@ import LoginGate from './components/LoginGate';
 
 const App: React.FC = () => {
   const [isLocked, setIsLocked] = useState(true);
-  const [hasApiKey, setHasApiKey] = useState<boolean>(!!process.env.API_KEY);
   const [driveStatus, setDriveStatus] = useState<'off' | 'on' | 'loading'>('off');
+  const [runtimeApiKey, setRuntimeApiKey] = useState<string | null>(null);
   const [syncingFiles, setSyncingFiles] = useState<Set<string>>(new Set());
   const [savedProjects, setSavedProjects] = useState<SavedProject[]>([]);
   const [currentProjectId, setCurrentProjectId] = useState<string | null>(null);
@@ -41,32 +41,69 @@ const App: React.FC = () => {
   const welcomeMessage: Message = {
     id: 'welcome',
     role: 'assistant',
-    content: 'ElectroExpert je pripravený. Systém automaticky deteguje konfiguráciu AI.',
+    content: 'ElectroExpert je pripravený. Pripojte Google Drive pre automatickú aktiváciu vášho AI kľúča.',
     timestamp: Date.now(),
   };
 
   const [messages, setMessages] = useState<Message[]>([welcomeMessage]);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Zisťujeme prítomnosť kľúča v systéme
+  const isEnvKeyPresent = !!(process.env.API_KEY && process.env.API_KEY !== 'undefined');
+  const isKeyActive = isEnvKeyPresent || !!runtimeApiKey;
+
   useEffect(() => {
     if (!isLocked) {
-      getAllManualsFromDB().then(setAllManuals);
-      getAllProjectsFromDB().then(setSavedProjects);
-      // Inicializácia Drive služby po odomknutí
-      driveService.init().then(() => {
-        if (localStorage.getItem('ee_google_client_id')) {
-          setDriveStatus('off');
+      const loadInitialData = async () => {
+        try {
+          const manuals = await getAllManualsFromDB();
+          setAllManuals(manuals);
+          const projects = await getAllProjectsFromDB();
+          setSavedProjects(projects);
+          await driveService.init();
+        } catch (e) {
+          console.error("Init fail", e);
         }
-      });
+      };
+      loadInitialData();
     }
   }, [isLocked]);
+
+  // Synchronizácia kľúča po pripojení Drive
+  useEffect(() => {
+    if (driveStatus === 'on') {
+      const syncKeyFromDrive = async () => {
+        const fileId = await driveService.findFile('.ai_settings.json');
+        if (fileId) {
+          try {
+            const content = await driveService.getFileContent(fileId);
+            const settings = JSON.parse(content);
+            if (settings.apiKey) {
+              setRuntimeApiKey(settings.apiKey);
+              console.log("API Key loaded from Cloud");
+            }
+          } catch (e) {
+            console.error("Cloud config parse fail", e);
+          }
+        } else if (!isEnvKeyPresent) {
+          // Ak kľúč nie je na drive ani v env, vypýtame si ho
+          const key = prompt("Vložte váš Gemini API kľúč (bude bezpečne uložený na váš Drive):");
+          if (key) {
+            setRuntimeApiKey(key);
+            await driveService.saveConfig('.ai_settings.json', JSON.stringify({ apiKey: key }));
+          }
+        }
+      };
+      syncKeyFromDrive();
+    }
+  }, [driveStatus]);
 
   const handleDriveConnect = async () => {
     setDriveStatus('loading');
     try {
       let clientId = localStorage.getItem('ee_google_client_id');
       if (!clientId) {
-        clientId = prompt("Vložte Google Client ID pre Cloud synchronizáciu:");
+        clientId = prompt("Vložte Google Client ID (potrebné pre prvé pripojenie):");
         if (clientId) driveService.setClientId(clientId);
       }
       if (clientId) {
@@ -76,9 +113,7 @@ const App: React.FC = () => {
         setDriveStatus('off');
       }
     } catch (e) {
-      console.error(e);
       setDriveStatus('off');
-      alert("Pripojenie k Drive zlyhalo. Skontrolujte Client ID.");
     }
   };
 
@@ -90,7 +125,7 @@ const App: React.FC = () => {
 
     try {
       const visibleManuals = allManuals.filter(m => m.baseId === activeBaseId);
-      const { text: responseText, sources } = await analyzeManual(text, visibleManuals, currentMode, updatedMessages);
+      const { text: responseText, sources } = await analyzeManual(text, visibleManuals, currentMode, updatedMessages, runtimeApiKey);
       
       setMessages(prev => [...prev, { 
         id: Date.now().toString(), 
@@ -117,50 +152,53 @@ const App: React.FC = () => {
     for (const file of Array.from(files) as File[]) {
       const tempId = Math.random().toString(36).substr(2, 9);
       setSyncingFiles(prev => new Set(prev).add(tempId));
-      
-      const base64 = await new Promise<string>(r => {
-        const reader = new FileReader();
-        reader.onload = () => r((reader.result as string).split(',')[1]);
-        reader.readAsDataURL(file);
-      });
-
-      const manual: ManualFile = { id: tempId, name: file.name, type: file.type, base64, baseId: activeBaseId };
-      await saveManualToDB(manual);
-      setAllManuals(prev => [...prev, manual]);
-
-      // Ak je aktívny Drive, nahráme aj tam
-      if (driveStatus === 'on') {
-        try {
+      try {
+        const base64 = await new Promise<string>((resolve) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve((reader.result as string).split(',')[1]);
+          reader.readAsDataURL(file);
+        });
+        const manual: ManualFile = { id: tempId, name: file.name, type: file.type, base64, baseId: activeBaseId };
+        await saveManualToDB(manual);
+        setAllManuals(prev => [...prev, manual]);
+        if (driveStatus === 'on') {
           await driveService.uploadFile(manual.name, manual.base64, manual.type, manual.baseId);
-        } catch (err) {
-          console.error("Cloud sync failed", err);
         }
+      } catch (err) {
+        console.error(err);
+      } finally {
+        setSyncingFiles(prev => { const n = new Set(prev); n.delete(tempId); return n; });
       }
-
-      setSyncingFiles(prev => { const n = new Set(prev); n.delete(tempId); return n; });
     }
   };
 
   if (isLocked) return <LoginGate onUnlock={() => setIsLocked(false)} />;
 
   return (
-    <div className="flex flex-col h-screen bg-slate-900 text-slate-100 font-sans selection:bg-blue-500/30">
-      <header className="bg-slate-800 border-b border-slate-700 p-4 flex justify-between items-center shadow-2xl relative z-30">
+    <div className="flex flex-col h-screen bg-slate-900 text-slate-100 font-sans selection:bg-blue-500/30 overflow-hidden">
+      <header className="bg-slate-800 border-b border-slate-700 p-4 flex justify-between items-center shadow-2xl relative z-40">
         <div className="flex items-center gap-6">
           <div className="flex flex-col">
             <h1 className="text-xl font-black italic tracking-tighter leading-none">Electro<span className="text-blue-500">Expert</span></h1>
             <span className="text-[9px] font-bold text-slate-500 tracking-[0.2em] mt-1 uppercase">Build {APP_VERSION}</span>
           </div>
           
-          <button 
-            onClick={handleDriveConnect}
-            className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-[10px] font-bold border transition-all ${
-              driveStatus === 'on' ? 'bg-green-500/10 text-green-400 border-green-500/20' : 'bg-slate-700 text-slate-400 border-slate-600'
-            }`}
-          >
-            <div className={`w-1.5 h-1.5 rounded-full ${driveStatus === 'on' ? 'bg-green-500 animate-pulse' : (driveStatus === 'loading' ? 'bg-yellow-500 animate-spin' : 'bg-slate-500')}`}></div>
-            {driveStatus === 'on' ? 'CLOUD AKTÍVNY' : (driveStatus === 'loading' ? 'PRIPÁJANIE...' : 'PRIPOJIŤ CLOUD')}
-          </button>
+          <div className="flex items-center gap-4">
+            <button 
+              onClick={handleDriveConnect}
+              className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-[10px] font-bold border transition-all ${
+                driveStatus === 'on' ? 'bg-green-500/10 text-green-400 border-green-500/20' : 'bg-slate-700 text-slate-400 border-slate-600'
+              }`}
+            >
+              <div className={`w-1.5 h-1.5 rounded-full ${driveStatus === 'on' ? 'bg-green-500' : 'bg-slate-500'}`}></div>
+              {driveStatus === 'on' ? 'CLOUD AKTÍVNY' : 'OFFLINE MOD'}
+            </button>
+
+            <div className={`text-[9px] font-bold px-2 py-1 rounded border flex items-center gap-2 ${isKeyActive ? 'text-blue-400 border-blue-500/20 bg-blue-500/5' : 'text-red-400 border-red-500/20 bg-red-500/5'}`}>
+              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" /></svg>
+              AI: {runtimeApiKey ? 'Z CLOUDU' : (isEnvKeyPresent ? 'SYSTÉM' : 'NEAKTÍVNA')}
+            </div>
+          </div>
         </div>
 
         <div className="flex items-center gap-3">
@@ -178,7 +216,7 @@ const App: React.FC = () => {
         </div>
       </header>
 
-      <main className="flex flex-1 overflow-hidden relative z-10">
+      <main className="flex flex-1 overflow-hidden relative">
         <Sidebar 
           manuals={allManuals.filter(m => m.baseId === activeBaseId)} 
           onUploadClick={() => fileInputRef.current?.click()} 
@@ -198,7 +236,7 @@ const App: React.FC = () => {
           onAddBase={() => { const n = prompt("Názov priečinka:"); if(n) setKnowledgeBases([...knowledgeBases, {id: n.toLowerCase().replace(/\s/g, ''), name: n, icon: '📁'}]) }}
           syncingFiles={syncingFiles}
         />
-        <div className="flex-1 flex flex-col md:flex-row overflow-hidden relative">
+        <div className="flex-1 flex flex-col md:flex-row overflow-hidden relative z-10">
           <ChatInterface messages={messages} onSendMessage={handleSendMessage} isAnalyzing={isAnalyzing} activeManualsCount={allManuals.filter(m => m.baseId === activeBaseId).length} />
           <ManualViewer manuals={allManuals.filter(m => m.baseId === activeBaseId)} />
         </div>
