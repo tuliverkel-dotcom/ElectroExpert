@@ -10,7 +10,6 @@ export const analyzeManual = async (
   customApiKey?: string | null
 ): Promise<{ text: string; sources?: Array<{ title: string; uri: string }> }> => {
   
-  // Priorita: 1. Dynamický kľúč (z Drive), 2. Environmentálny kľúč
   const envKey = process.env.API_KEY;
   const apiKey = customApiKey || ((envKey && envKey !== 'undefined') ? envKey : null);
   
@@ -19,12 +18,23 @@ export const analyzeManual = async (
   }
 
   const ai = new GoogleGenAI({ apiKey });
-  const modelName = 'gemini-3-flash-preview';
+  
+  // Prepíname na PRO model pre maximálnu inteligenciu
+  const modelName = 'gemini-3-pro-preview';
 
-  const systemInstruction = `Si špičkový elektro-inžinier. Analyzuješ technické manuály.
-Režim: ${mode}. Odpovedaj výhradne v slovenčine.
-Používaj Google Search na overenie technických noriem.
-Ak navrhuješ zapojenie, buď technicky presný a používaj Mermaid diagramy ak je to vhodné.`;
+  const systemInstruction = `Si elitný Senior Elektro-Inžinier a Expert na Diagnostiku (Level 3 Support).
+Tvojou úlohou je analyzovať priloženú technickú dokumentáciu (PDF/Obrázky) s extrémnou presnosťou.
+
+REŽIM ANALÝZY: ${mode}
+
+PRAVIDLÁ UVAŽOVANIA:
+1. DEEP SCAN: Nehľadaj len kľúčové slová. Analyzuj zapojenia, napäťové úrovne, pinouty a protokoly.
+2. STEP-BY-STEP LOGIC: Každé riešenie najprv logicky zdôvodni na základe faktov z manuálu.
+3. MERMAID DIAGRAMS: Ak navrhuješ zapojenie, VŽDY použi Mermaid syntax. Diagramy rob detailné (napr. sub-grafy pre MCU, senzory a napájanie).
+4. SEARCH GROUNDING: Ak narazíš na nejasnú súčiastku, použi Google Search na overenie jej datasheetu alebo noriem (EN/IEC).
+5. TÓN: Profesionálny, technický, stručný ale vyčerpávajúci.
+
+Ak v manuáli chýba informácia potrebná pre bezpečné riešenie, jasne na to upozorni a navrhni merania, ktoré má technik vykonať.`;
 
   const chatHistory = history
     .filter(m => !m.id.startsWith('err-') && m.id !== 'welcome')
@@ -53,12 +63,15 @@ Ak navrhuješ zapojenie, buď technicky presný a používaj Mermaid diagramy ak
       ],
       config: {
         systemInstruction,
-        temperature: 0.2,
+        temperature: 0.3, // Nižšia teplota pre vyššiu faktickú presnosť
+        thinkingConfig: { 
+          thinkingBudget: 16384 // Pridávame "kapacitu na premýšľanie" pre zložité technické úlohy
+        },
         tools: [{ googleSearch: {} }]
       }
     });
 
-    const text = response.text || "AI neodpovedala.";
+    const text = response.text || "AI nedokázala vygenerovať odpoveď. Skúste preformulovať otázku.";
     const sources: Array<{ title: string; uri: string }> = [];
     
     const groundingChunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks;
@@ -72,7 +85,11 @@ Ak navrhuješ zapojenie, buď technicky presný a používaj Mermaid diagramy ak
     
     return { text, sources };
   } catch (err: any) {
-    console.error("Gemini Error:", err);
-    throw new Error(err.message || "Chyba AI komunikácie.");
+    console.error("Gemini Pro Error:", err);
+    // Fallback na Flash ak by Pro model zlyhal (napr. kvôli kvótam)
+    if (err.message?.includes("not found") || err.message?.includes("quota")) {
+        throw new Error("Model Pro nie je dostupný. Skúste prejsť na platený API plán pre 'Thinking' funkcie.");
+    }
+    throw new Error(err.message || "Chyba pri hlbokej analýze.");
   }
 };

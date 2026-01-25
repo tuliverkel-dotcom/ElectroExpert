@@ -41,14 +41,13 @@ const App: React.FC = () => {
   const welcomeMessage: Message = {
     id: 'welcome',
     role: 'assistant',
-    content: 'ElectroExpert je pripravený. Pripojte Google Drive pre automatickú aktiváciu vášho AI kľúča.',
+    content: 'Systém ElectroExpert Advanced (PRO Core) aktivovaný. Pripravený na hlbokú technickú analýzu schém a logiky s využitím Chain-of-Thought uvažovania.',
     timestamp: Date.now(),
   };
 
   const [messages, setMessages] = useState<Message[]>([welcomeMessage]);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Zisťujeme prítomnosť kľúča v systéme
   const isEnvKeyPresent = !!(process.env.API_KEY && process.env.API_KEY !== 'undefined');
   const isKeyActive = isEnvKeyPresent || !!runtimeApiKey;
 
@@ -69,7 +68,6 @@ const App: React.FC = () => {
     }
   }, [isLocked]);
 
-  // Synchronizácia kľúča po pripojení Drive
   useEffect(() => {
     if (driveStatus === 'on') {
       const syncKeyFromDrive = async () => {
@@ -80,14 +78,12 @@ const App: React.FC = () => {
             const settings = JSON.parse(content);
             if (settings.apiKey) {
               setRuntimeApiKey(settings.apiKey);
-              console.log("API Key loaded from Cloud");
             }
           } catch (e) {
             console.error("Cloud config parse fail", e);
           }
         } else if (!isEnvKeyPresent) {
-          // Ak kľúč nie je na drive ani v env, vypýtame si ho
-          const key = prompt("Vložte váš Gemini API kľúč (bude bezpečne uložený na váš Drive):");
+          const key = prompt("Vložte váš Gemini API kľúč (PRO model vyžaduje kľúč s povoleným billingom):");
           if (key) {
             setRuntimeApiKey(key);
             await driveService.saveConfig('.ai_settings.json', JSON.stringify({ apiKey: key }));
@@ -103,7 +99,7 @@ const App: React.FC = () => {
     try {
       let clientId = localStorage.getItem('ee_google_client_id');
       if (!clientId) {
-        clientId = prompt("Vložte Google Client ID (potrebné pre prvé pripojenie):");
+        clientId = prompt("Vložte Google Client ID:");
         if (clientId) driveService.setClientId(clientId);
       }
       if (clientId) {
@@ -179,8 +175,11 @@ const App: React.FC = () => {
       <header className="bg-slate-800 border-b border-slate-700 p-4 flex justify-between items-center shadow-2xl relative z-40">
         <div className="flex items-center gap-6">
           <div className="flex flex-col">
-            <h1 className="text-xl font-black italic tracking-tighter leading-none">Electro<span className="text-blue-500">Expert</span></h1>
-            <span className="text-[9px] font-bold text-slate-500 tracking-[0.2em] mt-1 uppercase">Build {APP_VERSION}</span>
+            <h1 className="text-xl font-black italic tracking-tighter leading-none flex items-center gap-2">
+              Electro<span className="text-blue-500">Expert</span>
+              <span className="bg-blue-600 text-white text-[8px] px-1.5 py-0.5 rounded-full not-italic tracking-normal">ADVANCED</span>
+            </h1>
+            <span className="text-[9px] font-bold text-slate-500 tracking-[0.2em] mt-1 uppercase">Build {APP_VERSION} | PRO Core</span>
           </div>
           
           <div className="flex items-center gap-4">
@@ -190,13 +189,13 @@ const App: React.FC = () => {
                 driveStatus === 'on' ? 'bg-green-500/10 text-green-400 border-green-500/20' : 'bg-slate-700 text-slate-400 border-slate-600'
               }`}
             >
-              <div className={`w-1.5 h-1.5 rounded-full ${driveStatus === 'on' ? 'bg-green-500' : 'bg-slate-500'}`}></div>
+              <div className={`w-1.5 h-1.5 rounded-full ${driveStatus === 'on' ? 'bg-green-500 animate-pulse' : 'bg-slate-500'}`}></div>
               {driveStatus === 'on' ? 'CLOUD AKTÍVNY' : 'OFFLINE MOD'}
             </button>
 
             <div className={`text-[9px] font-bold px-2 py-1 rounded border flex items-center gap-2 ${isKeyActive ? 'text-blue-400 border-blue-500/20 bg-blue-500/5' : 'text-red-400 border-red-500/20 bg-red-500/5'}`}>
-              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" /></svg>
-              AI: {runtimeApiKey ? 'Z CLOUDU' : (isEnvKeyPresent ? 'SYSTÉM' : 'NEAKTÍVNA')}
+              <div className={`w-1 h-1 rounded-full ${isKeyActive ? 'bg-blue-500' : 'bg-red-500'}`}></div>
+              AI ENGINE: {runtimeApiKey ? 'PRO (CLOUD KEY)' : (isEnvKeyPresent ? 'PRO (ENV)' : 'NEAKTÍVNA')}
             </div>
           </div>
         </div>
