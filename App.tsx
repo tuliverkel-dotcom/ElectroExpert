@@ -19,6 +19,7 @@ import LoginGate from './components/LoginGate';
 
 const App: React.FC = () => {
   const [isLocked, setIsLocked] = useState(true);
+  const [hasApiKey, setHasApiKey] = useState<boolean>(false);
   const [driveStatus, setDriveStatus] = useState<'off' | 'on' | 'loading'>('off');
   const [syncingFiles, setSyncingFiles] = useState<Set<string>>(new Set());
   const [savedProjects, setSavedProjects] = useState<SavedProject[]>([]);
@@ -40,38 +41,45 @@ const App: React.FC = () => {
   const welcomeMessage: Message = {
     id: 'welcome',
     role: 'assistant',
-    content: 'ElectroExpert je pripravený. Môžete začať analýzu vašej dokumentácie.',
+    content: 'ElectroExpert je pripravený. Uistite sa, že svieti zelený indikátor "API KĽÚČ OK".',
     timestamp: Date.now(),
   };
 
   const [messages, setMessages] = useState<Message[]>([welcomeMessage]);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  const checkKeyStatus = async () => {
+    const win = window as any;
+    if (win.aistudio?.hasSelectedApiKey) {
+      try {
+        const ok = await win.aistudio.hasSelectedApiKey();
+        setHasApiKey(ok);
+      } catch (e) {
+        setHasApiKey(false);
+      }
+    }
+  };
+
+  useEffect(() => {
+    checkKeyStatus();
+    const interval = setInterval(checkKeyStatus, 5000);
+    return () => clearInterval(interval);
+  }, []);
+
   useEffect(() => {
     if (!isLocked) {
       getAllManualsFromDB().then(setAllManuals);
       getAllProjectsFromDB().then(setSavedProjects);
-      driveService.init().then(() => {
-        if (localStorage.getItem('ee_google_client_id')) {
-          setDriveStatus('off');
-        }
-      });
     }
   }, [isLocked]);
 
-  const handleDriveConnect = async () => {
-    setDriveStatus('loading');
-    try {
-      let clientId = localStorage.getItem('ee_google_client_id');
-      if (!clientId) {
-        clientId = prompt("Vložte Google Client ID:");
-        if (clientId) driveService.setClientId(clientId);
-      }
-      const success = await driveService.signIn();
-      setDriveStatus(success ? 'on' : 'off');
-    } catch (e) {
-      setDriveStatus('off');
-      alert("Pripojenie k Drive zlyhalo.");
+  const handleSelectKey = async () => {
+    const win = window as any;
+    if (win.aistudio?.openSelectKey) {
+      await win.aistudio.openSelectKey();
+      setHasApiKey(true); // Predpokladáme úspech podľa pravidiel race condition
+    } else {
+      alert("Dialóg pre kľúč nie je dostupný v tomto prehliadači.");
     }
   };
 
@@ -93,6 +101,9 @@ const App: React.FC = () => {
         sources 
       }]);
     } catch (error: any) {
+      if (error.message?.includes("API kľúč") || error.message?.includes("kľúča")) {
+        setHasApiKey(false);
+      }
       setMessages(prev => [...prev, { 
         id: 'err-' + Date.now(), 
         role: 'assistant', 
@@ -120,44 +131,17 @@ const App: React.FC = () => {
       const manual: ManualFile = { id: tempId, name: file.name, type: file.type, base64, baseId: activeBaseId };
       await saveManualToDB(manual);
       setAllManuals(prev => [...prev, manual]);
-
-      if (driveStatus === 'on') {
-        try {
-          await driveService.uploadFile(manual.name, manual.base64, manual.type, manual.baseId);
-        } catch (err) {
-          console.error("Cloud sync failed", err);
-        }
-      }
-
       setSyncingFiles(prev => { const n = new Set(prev); n.delete(tempId); return n; });
     }
   };
 
-  const handleSaveProject = async () => {
-    if (messages.length <= 1) return;
-    const name = prompt("Názov riešenia:", currentProjectId ? savedProjects.find(p => p.id === currentProjectId)?.name : "");
-    if (!name) return;
-    const project: SavedProject = {
-      id: currentProjectId || Date.now().toString(),
-      name, baseId: activeBaseId, manuals: allManuals.filter(m => m.baseId === activeBaseId),
-      messages, mode: currentMode, timestamp: Date.now()
-    };
-    await saveProjectToDB(project);
-    setSavedProjects(await getAllProjectsFromDB());
-    setCurrentProjectId(project.id);
-  };
-
-  const handleLoadProject = (id: string) => {
-    const project = savedProjects.find(p => p.id === id);
-    if (project) {
-      setActiveBaseId(project.baseId);
-      setMessages(project.messages);
-      setCurrentMode(project.mode);
-      setCurrentProjectId(project.id);
-    }
-  };
-
-  if (isLocked) return <LoginGate onUnlock={() => setIsLocked(false)} />;
+  if (isLocked) return (
+    <LoginGate 
+      onUnlock={() => setIsLocked(false)} 
+      hasApiKey={hasApiKey} 
+      onSelectKey={handleSelectKey} 
+    />
+  );
 
   return (
     <div className="flex flex-col h-screen bg-slate-900 text-slate-100 font-sans selection:bg-blue-500/30">
@@ -167,18 +151,26 @@ const App: React.FC = () => {
             <h1 className="text-xl font-black italic tracking-tighter leading-none">Electro<span className="text-blue-500">Expert</span></h1>
             <span className="text-[9px] font-bold text-slate-500 tracking-[0.2em] mt-1 uppercase">Build {APP_VERSION}</span>
           </div>
-          <button 
-            onClick={handleDriveConnect}
-            className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-[10px] font-bold transition-all ${
-              driveStatus === 'on' ? 'bg-green-500/10 text-green-400 border border-green-500/20' : 'bg-slate-700 text-slate-400 border border-slate-600'
-            }`}
-          >
-            <div className={`w-1.5 h-1.5 rounded-full ${driveStatus === 'on' ? 'bg-green-500 animate-pulse' : 'bg-slate-500'}`}></div>
-            {driveStatus === 'on' ? 'CLOUD AKTÍVNY' : 'PRIPOJIŤ CLOUD'}
-          </button>
+          
+          <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-[10px] font-bold border transition-all ${
+            hasApiKey ? 'bg-green-500/10 text-green-400 border-green-500/20' : 'bg-red-500/10 text-red-400 border-red-500/20 animate-pulse'
+          }`}>
+            <div className={`w-1.5 h-1.5 rounded-full ${hasApiKey ? 'bg-green-500' : 'bg-red-500'}`}></div>
+            {hasApiKey ? 'API KĽÚČ OK' : 'CHÝBA API KĽÚČ'}
+          </div>
         </div>
 
         <div className="flex items-center gap-3">
+           <button 
+             onClick={handleSelectKey}
+             className={`px-4 py-2 rounded-xl text-[10px] font-black transition-all border flex items-center gap-2 ${
+               hasApiKey ? 'bg-slate-700 border-slate-600 text-slate-400' : 'bg-blue-600 border-blue-400 text-white animate-bounce'
+             }`}
+           >
+             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" /></svg>
+             {hasApiKey ? 'ZMENIŤ KĽÚČ' : 'NASTAVIŤ API KĽÚČ'}
+           </button>
+
            <div className="flex bg-slate-950 p-1 rounded-xl border border-slate-700">
              {['SCHEMATIC', 'LOGIC', 'SETTINGS'].map((mode) => (
                <button key={mode} onClick={() => setCurrentMode(mode as AnalysisMode)} className={`px-4 py-1.5 rounded-lg text-[9px] font-black transition-all ${currentMode === mode ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-500 hover:text-slate-300'}`}>
@@ -194,16 +186,16 @@ const App: React.FC = () => {
           manuals={allManuals.filter(m => m.baseId === activeBaseId)} 
           onUploadClick={() => fileInputRef.current?.click()} 
           onRemove={(id) => { deleteManualFromDB(id); setAllManuals(prev => prev.filter(m => m.id !== id)); }}
-          onSaveProject={handleSaveProject}
-          onNewProject={() => { setMessages([welcomeMessage]); setCurrentProjectId(null); }}
-          savedProjects={savedProjects}
-          onLoadProject={handleLoadProject}
-          onDeleteProject={async (id, e) => { e.stopPropagation(); if(confirm("Zmazať?")){ await deleteProjectFromDB(id); setSavedProjects(prev => prev.filter(p => p.id !== id)); }}}
-          currentProjectId={currentProjectId}
+          onSaveProject={() => {}} 
+          onNewProject={() => setMessages([welcomeMessage])}
+          savedProjects={[]} 
+          onLoadProject={() => {}}
+          onDeleteProject={() => {}}
+          currentProjectId={null}
           knowledgeBases={knowledgeBases}
           activeBaseId={activeBaseId}
           onSelectBase={setActiveBaseId}
-          onAddBase={() => { const n = prompt("Názov:"); if(n) setKnowledgeBases([...knowledgeBases, {id: n.toLowerCase(), name: n, icon: '📁'}]) }}
+          onAddBase={() => {}}
           syncingFiles={syncingFiles}
         />
         <div className="flex-1 flex flex-col md:flex-row overflow-hidden relative">
