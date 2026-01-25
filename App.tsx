@@ -17,19 +17,12 @@ import ChatInterface from './components/ChatInterface';
 import ManualViewer from './components/ManualViewer';
 import LoginGate from './components/LoginGate';
 
-declare global {
-  // Fix: Simplification of Window augmentation to avoid modifier conflicts (Error on line 26)
-  interface Window {
-    aistudio: {
-      hasSelectedApiKey: () => Promise<boolean>;
-      openSelectKey: () => Promise<void>;
-    };
-  }
-}
+// Removed explicit declare global for aistudio to avoid duplicate identifier errors.
+// The environment provides these types automatically.
 
 const App: React.FC = () => {
   const [isLocked, setIsLocked] = useState(true);
-  const [hasApiKey, setHasApiKey] = useState<boolean>(true);
+  const [hasApiKey, setHasApiKey] = useState<boolean>(false);
   const [driveStatus, setDriveStatus] = useState<'off' | 'on' | 'loading'>('off');
   const [syncingFiles, setSyncingFiles] = useState<Set<string>>(new Set());
   const [savedProjects, setSavedProjects] = useState<SavedProject[]>([]);
@@ -51,20 +44,31 @@ const App: React.FC = () => {
   const welcomeMessage: Message = {
     id: 'welcome',
     role: 'assistant',
-    content: 'ElectroExpert je pripravený. Nahrajte manuály alebo vyberte uložené riešenie.',
+    content: 'ElectroExpert je pripravený. Ak AI nefunguje, skontrolujte tlačidlo "API KĽÚČ" vpravo hore.',
     timestamp: Date.now(),
   };
 
   const [messages, setMessages] = useState<Message[]>([welcomeMessage]);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Kontrola API kľúča
   const checkKey = async () => {
-    if (window.aistudio) {
-      const ok = await window.aistudio.hasSelectedApiKey();
-      setHasApiKey(ok);
+    // Cast window to any to access aistudio safely if type merging failed.
+    const win = window as any;
+    if (win.aistudio) {
+      try {
+        const ok = await win.aistudio.hasSelectedApiKey();
+        setHasApiKey(ok);
+      } catch (e) {
+        setHasApiKey(false);
+      }
     }
   };
+
+  // Kontrola kľúča v intervale, keby sa načítal neskôr
+  useEffect(() => {
+    const interval = setInterval(checkKey, 2000);
+    return () => clearInterval(interval);
+  }, []);
 
   useEffect(() => {
     checkKey();
@@ -80,10 +84,14 @@ const App: React.FC = () => {
   }, [isLocked]);
 
   const handleSelectKey = async () => {
-    if (window.aistudio) {
-      await window.aistudio.openSelectKey();
-      // Podľa inštrukcií: Assume success immediately to avoid race condition
+    const win = window as any;
+    if (win.aistudio) {
+      await win.aistudio.openSelectKey();
+      // Assume success after triggering the selection to avoid race condition.
       setHasApiKey(true);
+      checkKey();
+    } else {
+      alert("Prostredie nepodporuje výber kľúča. Skontrolujte nastavenia prehliadača.");
     }
   };
 
@@ -92,13 +100,12 @@ const App: React.FC = () => {
     try {
       let clientId = localStorage.getItem('ee_google_client_id');
       if (!clientId) {
-        clientId = prompt("Vložte Google Client ID (ak ho ešte nemáte v pamäti):");
+        clientId = prompt("Vložte Google Client ID:");
         if (clientId) driveService.setClientId(clientId);
       }
       const success = await driveService.signIn();
       setDriveStatus(success ? 'on' : 'off');
     } catch (e) {
-      console.error(e);
       setDriveStatus('off');
       alert("Pripojenie k Drive zlyhalo.");
     }
@@ -122,14 +129,14 @@ const App: React.FC = () => {
         sources 
       }]);
     } catch (error: any) {
-      // Ak API nahlási chýbajúcu entitu, resetujeme stav kľúča
-      if (error.message?.includes("Requested entity was not found")) {
+      // Handle the case where the API key might have been invalidated or not found.
+      if (error.message?.includes("not found") || error.message?.includes("API_KEY")) {
         setHasApiKey(false);
       }
       setMessages(prev => [...prev, { 
         id: 'err-' + Date.now(), 
         role: 'assistant', 
-        content: `❌ **CHYBA:** ${error.message}${!hasApiKey ? '\n\nKliknite na "NASTAVIŤ API KĽÚČ" v hornom menu.' : ''}`, 
+        content: `❌ **AI CHYBA:** ${error.message}\n\nUistite sa, že máte nastavený správny API kľúč.`, 
         timestamp: Date.now() 
       }]);
     } finally {
@@ -140,7 +147,6 @@ const App: React.FC = () => {
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files) return;
-    // Fix: Explicitly casting Array.from(files) to File[] to resolve 'unknown' type issues with reader and property access (Error on lines 150, 153)
     for (const file of Array.from(files) as File[]) {
       const tempId = Math.random().toString(36).substr(2, 9);
       setSyncingFiles(prev => new Set(prev).add(tempId));
@@ -155,7 +161,6 @@ const App: React.FC = () => {
       await saveManualToDB(manual);
       setAllManuals(prev => [...prev, manual]);
 
-      // Ak je Drive aktívny, synchronizujeme
       if (driveStatus === 'on') {
         try {
           await driveService.uploadFile(manual.name, manual.base64, manual.type, manual.baseId);
@@ -180,7 +185,6 @@ const App: React.FC = () => {
     await saveProjectToDB(project);
     setSavedProjects(await getAllProjectsFromDB());
     setCurrentProjectId(project.id);
-    alert("Uložené lokálne.");
   };
 
   const handleLoadProject = (id: string) => {
@@ -197,7 +201,7 @@ const App: React.FC = () => {
 
   return (
     <div className="flex flex-col h-screen bg-slate-900 text-slate-100 font-sans selection:bg-blue-500/30">
-      <header className="bg-slate-800 border-b border-slate-700 p-4 flex justify-between items-center shadow-2xl relative z-10">
+      <header className="bg-slate-800 border-b border-slate-700 p-4 flex justify-between items-center shadow-2xl relative z-20">
         <div className="flex items-center gap-6">
           <div className="flex flex-col">
             <h1 className="text-xl font-black italic tracking-tighter leading-none">Electro<span className="text-blue-500">Expert</span></h1>
@@ -210,22 +214,27 @@ const App: React.FC = () => {
             }`}
           >
             <div className={`w-1.5 h-1.5 rounded-full ${driveStatus === 'on' ? 'bg-green-500 animate-pulse' : 'bg-slate-500'}`}></div>
-            {driveStatus === 'on' ? 'GOOGLE DRIVE AKTÍVNY' : 'PRIPOJIŤ DISK'}
+            {driveStatus === 'on' ? 'CLOUD AKTÍVNY' : 'PRIPOJIŤ CLOUD'}
           </button>
         </div>
 
-        <div className="flex items-center gap-4">
-           {!hasApiKey && (
-             <button 
-               onClick={handleSelectKey}
-               className="bg-red-600 hover:bg-red-500 text-white text-[10px] font-black px-4 py-2 rounded-lg animate-pulse shadow-lg shadow-red-900/40 border border-red-400"
-             >
-               NASTAVIŤ API KĽÚČ
-             </button>
-           )}
+        <div className="flex items-center gap-3">
+           {/* TLAČIDLO API KĽÚČA S PULZUJÚCIM EFEKTOM AK CHÝBA */}
+           <button 
+             onClick={handleSelectKey}
+             className={`px-4 py-2.5 rounded-xl text-[10px] font-black transition-all border-2 flex items-center gap-2 shadow-2xl z-30 ${
+               hasApiKey 
+               ? 'bg-slate-700 text-slate-300 border-slate-600 hover:bg-slate-600' 
+               : 'bg-red-600 text-white border-white animate-pulse shadow-red-900/50 scale-110'
+             }`}
+           >
+             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" /></svg>
+             {hasApiKey ? 'SPRAVOVAŤ AI KĽÚČ' : 'NASTAVIŤ AI KĽÚČ !'}
+           </button>
+
            <div className="flex bg-slate-950 p-1 rounded-xl border border-slate-700">
              {['SCHEMATIC', 'LOGIC', 'SETTINGS'].map((mode) => (
-               <button key={mode} onClick={() => setCurrentMode(mode as AnalysisMode)} className={`px-4 py-1.5 rounded-lg text-[9px] font-black transition-all ${currentMode === mode ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20' : 'text-slate-500 hover:text-slate-300'}`}>
+               <button key={mode} onClick={() => setCurrentMode(mode as AnalysisMode)} className={`px-4 py-1.5 rounded-lg text-[9px] font-black transition-all ${currentMode === mode ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-500 hover:text-slate-300'}`}>
                  {mode}
                </button>
              ))}
@@ -242,7 +251,7 @@ const App: React.FC = () => {
           onNewProject={() => { setMessages([welcomeMessage]); setCurrentProjectId(null); }}
           savedProjects={savedProjects}
           onLoadProject={handleLoadProject}
-          onDeleteProject={async (id, e) => { e.stopPropagation(); if(confirm("Zmazať riešenie?")){ await deleteProjectFromDB(id); setSavedProjects(prev => prev.filter(p => p.id !== id)); }}}
+          onDeleteProject={async (id, e) => { e.stopPropagation(); if(confirm("Zmazať?")){ await deleteProjectFromDB(id); setSavedProjects(prev => prev.filter(p => p.id !== id)); }}}
           currentProjectId={currentProjectId}
           knowledgeBases={knowledgeBases}
           activeBaseId={activeBaseId}
@@ -250,7 +259,12 @@ const App: React.FC = () => {
           onAddBase={() => { const n = prompt("Názov:"); if(n) setKnowledgeBases([...knowledgeBases, {id: n.toLowerCase(), name: n, icon: '📁'}]) }}
           syncingFiles={syncingFiles}
         />
-        <div className="flex-1 flex flex-col md:flex-row overflow-hidden">
+        <div className="flex-1 flex flex-col md:flex-row overflow-hidden relative">
+          {!hasApiKey && !isLocked && (
+            <div className="absolute top-4 left-1/2 -translate-x-1/2 z-50 bg-red-600 text-white px-6 py-3 rounded-full font-black text-xs shadow-2xl animate-bounce border-2 border-white pointer-events-none">
+              ⚠ NASTAVTE API KĽÚČ PRE FUNKČNOSŤ AI
+            </div>
+          )}
           <ChatInterface messages={messages} onSendMessage={handleSendMessage} isAnalyzing={isAnalyzing} activeManualsCount={allManuals.filter(m => m.baseId === activeBaseId).length} />
           <ManualViewer manuals={allManuals.filter(m => m.baseId === activeBaseId)} />
         </div>

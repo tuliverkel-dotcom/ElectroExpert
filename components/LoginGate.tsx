@@ -48,17 +48,12 @@ const LoginGate: React.FC<LoginGateProps> = ({ onUnlock, hasApiKey, onSelectKey 
   };
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950">
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950 overflow-y-auto p-4">
       <div className="absolute inset-0 opacity-20 pointer-events-none">
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_50%,#1e293b_0%,#020617_100%)]"></div>
-        <div className="grid grid-cols-8 grid-rows-8 w-full h-full opacity-10">
-          {Array.from({ length: 64 }).map((_, i) => (
-            <div key={i} className="border-[0.5px] border-slate-700"></div>
-          ))}
-        </div>
       </div>
 
-      <div className="relative w-full max-w-md p-8 bg-slate-900 border border-slate-800 rounded-3xl shadow-2xl shadow-blue-900/20">
+      <div className="relative w-full max-w-md p-8 bg-slate-900 border border-slate-800 rounded-3xl shadow-2xl shadow-blue-900/20 my-auto">
         <div className="flex flex-col items-center mb-8">
           <div className="w-16 h-16 bg-blue-600/10 rounded-2xl flex items-center justify-center mb-4 border border-blue-500/30">
             <svg className={`w-8 h-8 ${error ? 'text-red-500 animate-shake' : 'text-blue-500'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -68,15 +63,39 @@ const LoginGate: React.FC<LoginGateProps> = ({ onUnlock, hasApiKey, onSelectKey 
           <h1 className="text-2xl font-black text-white tracking-tighter uppercase italic">
             Electro<span className="text-blue-500">Expert</span>
           </h1>
-          <p className="text-[10px] text-slate-500 uppercase font-bold tracking-[0.2em] mt-1">
-            {isNewUser ? 'Nastavenie nového prístupu' : 'Zabezpečený pracovný priestor'}
+          <p className="text-[10px] text-slate-500 uppercase font-bold tracking-[0.2em] mt-1 text-center">
+            Pracovisko s technickou AI
           </p>
         </div>
 
-        <form onSubmit={handleAction} className="space-y-4">
+        {/* API KĽÚČ SEKCOA - TERAZ NA ZAČIATKU PRE MAXIMÁLNU VIDITEĽNOSŤ */}
+        {onSelectKey && (
+          <div className="mb-8 p-4 bg-slate-950/50 rounded-2xl border border-slate-800 border-dashed">
+            <div className="flex items-center justify-between mb-3">
+               <span className={`text-[10px] font-black uppercase tracking-widest ${hasApiKey ? 'text-green-500' : 'text-red-500 animate-pulse'}`}>
+                 {hasApiKey ? '✓ AI KĽÚČ PRIPOJENÝ' : '⚠ CHÝBA AI KĽÚČ'}
+               </span>
+            </div>
+            <button 
+              onClick={onSelectKey}
+              className={`w-full py-3.5 rounded-xl text-[11px] font-black transition-all border uppercase tracking-[0.1em] shadow-xl ${
+                hasApiKey 
+                ? 'bg-slate-800 text-slate-400 border-slate-700 hover:bg-slate-700' 
+                : 'bg-red-600 text-white border-red-400 hover:bg-red-500 animate-pulse'
+              }`}
+            >
+              {hasApiKey ? 'Zmeniť / Spravovať API Kľúč' : 'NASTAVIŤ API KĽÚČ (KLIKNI TU)'}
+            </button>
+            <p className="text-[9px] text-slate-600 italic text-center mt-2 leading-tight">
+              Bez nastavenia kľúča nebude AI analýza dostupná.
+            </p>
+          </div>
+        )}
+
+        <form onSubmit={handleAction} className="space-y-4 pt-4 border-t border-slate-800/50">
           <div className="space-y-1">
             <label className="text-[10px] font-bold text-slate-400 uppercase ml-1">
-              {isNewUser ? 'Vytvorte si heslo' : 'Prístupový kľúč'}
+              {isNewUser ? 'Vytvorte si heslo do aplikácie' : 'Vstupné heslo'}
             </label>
             <input
               autoFocus
@@ -103,41 +122,17 @@ const LoginGate: React.FC<LoginGateProps> = ({ onUnlock, hasApiKey, onSelectKey 
 
           {error && (
             <p className="text-[10px] text-red-500 font-bold text-center uppercase tracking-wider animate-pulse">
-              Nesprávny prístupový kľúč. Skúste znova.
+              Nesprávne heslo.
             </p>
           )}
 
           <button
             type="submit"
-            className="w-full bg-blue-600 hover:bg-blue-500 text-white font-black py-4 rounded-xl shadow-lg shadow-blue-600/20 transition-all active:scale-95 uppercase text-xs tracking-widest mt-4"
+            className="w-full bg-blue-600 hover:bg-blue-500 text-white font-black py-4 rounded-xl shadow-lg transition-all active:scale-95 uppercase text-xs tracking-widest"
           >
-            {isNewUser ? 'Vytvoriť a vstúpiť' : 'Odomknúť systém'}
+            {isNewUser ? 'Vytvoriť profil a vstúpiť' : 'Odomknúť a vstúpiť'}
           </button>
         </form>
-
-        {!hasApiKey && onSelectKey && (
-          <div className="mt-6 p-4 bg-red-950/30 border border-red-500/30 rounded-xl text-center space-y-3">
-             <p className="text-[10px] text-red-400 font-bold uppercase tracking-tight leading-tight">
-               Pre fungovanie AI modelov Gemini 3 je potrebné vybrať API kľúč z vášho fakturačného projektu.
-             </p>
-             <button 
-               onClick={onSelectKey}
-               className="bg-red-600 hover:bg-red-500 text-white text-[10px] font-black py-2 px-4 rounded-lg transition-all shadow-lg"
-             >
-               NASTAVIŤ API KĽÚČ
-             </button>
-             <p className="text-[8px] text-slate-500 italic">
-               Viac info na <a href="https://ai.google.dev/gemini-api/docs/billing" target="_blank" className="underline">ai.google.dev/billing</a>
-             </p>
-          </div>
-        )}
-
-        <div className="mt-8 pt-6 border-t border-slate-800/50 flex flex-col items-center gap-2">
-          <div className="flex items-center gap-1.5">
-            <div className="w-1.5 h-1.5 rounded-full bg-green-500"></div>
-            <span className="text-[9px] text-slate-600 uppercase font-bold tracking-tight">Všetky spojenia sú šifrované (AES-256)</span>
-          </div>
-        </div>
       </div>
       
       <style>{`
