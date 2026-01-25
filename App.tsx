@@ -17,12 +17,9 @@ import ChatInterface from './components/ChatInterface';
 import ManualViewer from './components/ManualViewer';
 import LoginGate from './components/LoginGate';
 
-// Removed explicit declare global for aistudio to avoid duplicate identifier errors.
-// The environment provides these types automatically.
-
 const App: React.FC = () => {
   const [isLocked, setIsLocked] = useState(true);
-  const [hasApiKey, setHasApiKey] = useState<boolean>(false);
+  const [hasApiKey, setHasApiKey] = useState<boolean>(true); // Default to true to allow attempt if env var exists
   const [driveStatus, setDriveStatus] = useState<'off' | 'on' | 'loading'>('off');
   const [syncingFiles, setSyncingFiles] = useState<Set<string>>(new Set());
   const [savedProjects, setSavedProjects] = useState<SavedProject[]>([]);
@@ -44,7 +41,7 @@ const App: React.FC = () => {
   const welcomeMessage: Message = {
     id: 'welcome',
     role: 'assistant',
-    content: 'ElectroExpert je pripravený. Ak AI nefunguje, skontrolujte tlačidlo "API KĽÚČ" vpravo hore.',
+    content: 'ElectroExpert je pripravený. Ak systém nahlási chybu kľúča, použite tlačidlo "NASTAVIŤ AI KĽÚČ" vpravo hore.',
     timestamp: Date.now(),
   };
 
@@ -52,23 +49,16 @@ const App: React.FC = () => {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const checkKey = async () => {
-    // Cast window to any to access aistudio safely if type merging failed.
     const win = window as any;
-    if (win.aistudio) {
+    if (win.aistudio && typeof win.aistudio.hasSelectedApiKey === 'function') {
       try {
         const ok = await win.aistudio.hasSelectedApiKey();
         setHasApiKey(ok);
       } catch (e) {
-        setHasApiKey(false);
+        console.warn("Key check failed, assuming env key exists.");
       }
     }
   };
-
-  // Kontrola kľúča v intervale, keby sa načítal neskôr
-  useEffect(() => {
-    const interval = setInterval(checkKey, 2000);
-    return () => clearInterval(interval);
-  }, []);
 
   useEffect(() => {
     checkKey();
@@ -85,13 +75,15 @@ const App: React.FC = () => {
 
   const handleSelectKey = async () => {
     const win = window as any;
-    if (win.aistudio) {
-      await win.aistudio.openSelectKey();
-      // Assume success after triggering the selection to avoid race condition.
-      setHasApiKey(true);
-      checkKey();
+    if (win.aistudio && typeof win.aistudio.openSelectKey === 'function') {
+      try {
+        await win.aistudio.openSelectKey();
+        setHasApiKey(true);
+      } catch (e) {
+        console.error("Error opening key selector:", e);
+      }
     } else {
-      alert("Prostredie nepodporuje výber kľúča. Skontrolujte nastavenia prehliadača.");
+      alert("Tento systém vyžaduje prostredie Google AI Studio pre výber kľúča. Ak ho nevidíte, uistite sa, že ste v správnom editore.");
     }
   };
 
@@ -129,14 +121,13 @@ const App: React.FC = () => {
         sources 
       }]);
     } catch (error: any) {
-      // Handle the case where the API key might have been invalidated or not found.
-      if (error.message?.includes("not found") || error.message?.includes("API_KEY")) {
+      if (error.message?.includes("CHYBA KĽÚČA") || error.message?.includes("API_KEY")) {
         setHasApiKey(false);
       }
       setMessages(prev => [...prev, { 
         id: 'err-' + Date.now(), 
         role: 'assistant', 
-        content: `❌ **AI CHYBA:** ${error.message}\n\nUistite sa, že máte nastavený správny API kľúč.`, 
+        content: `❌ ${error.message}`, 
         timestamp: Date.now() 
       }]);
     } finally {
@@ -219,7 +210,6 @@ const App: React.FC = () => {
         </div>
 
         <div className="flex items-center gap-3">
-           {/* TLAČIDLO API KĽÚČA S PULZUJÚCIM EFEKTOM AK CHÝBA */}
            <button 
              onClick={handleSelectKey}
              className={`px-4 py-2.5 rounded-xl text-[10px] font-black transition-all border-2 flex items-center gap-2 shadow-2xl z-30 ${

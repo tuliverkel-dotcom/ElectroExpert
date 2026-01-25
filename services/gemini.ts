@@ -9,18 +9,21 @@ export const analyzeManual = async (
   history: Message[]
 ): Promise<{ text: string; sources?: Array<{ title: string; uri: string }> }> => {
   
-  if (!process.env.API_KEY) {
-    throw new Error("API kľúč nie je nastavený. Kliknite na 'NASTAVIŤ KĽÚČ'.");
+  const apiKey = process.env.API_KEY;
+  if (!apiKey) {
+    throw new Error("API kľúč nie je detegovaný v systéme. Prosím, použite tlačidlo 'NASTAVIŤ AI KĽÚČ' v hornom menu.");
   }
 
-  // Vždy vytvoríme novú inštanciu pre zabezpečenie aktuálnosti kľúča
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-  const modelName = 'gemini-3-pro-preview';
+  // Create a new instance right before the call as required by the documentation
+  const ai = new GoogleGenAI({ apiKey });
+  // Using gemini-3-pro-image-preview for high-quality technical reasoning and Google Search grounding support
+  const modelName = 'gemini-3-pro-image-preview';
 
-  const systemInstruction = `Si elitný technický inžinier a expert na elektroinštalácie. 
+  const systemInstruction = `Si elitný technický inžinier a expert na elektroinštalácie a priemyselnú automatizáciu. 
 Tvojou úlohou je radiť používateľom na základe poskytnutých manuálov.
 Pracuješ v režime: ${mode}. Odpovedaj výhradne v slovenčine.
-Ak používateľ nahrá PDF alebo obrázok schémy, analyzuj ho technicky presne.`;
+Ak používateľ nahrá PDF alebo obrázok schémy, analyzuj ho technicky presne. 
+Využívaj Google Search na overenie aktuálnych noriem (STN, EN) alebo parametrov konkrétnych komponentov, ak nie sú v manuáli.`;
 
   const chatHistory = history
     .filter(m => !m.id.startsWith('err-') && m.id !== 'welcome')
@@ -54,25 +57,29 @@ Ak používateľ nahrá PDF alebo obrázok schémy, analyzuj ho technicky presne
       }
     });
 
-    const text = response.text || "Bez odpovede.";
+    const text = response.text || "Model nevygeneroval žiadnu odpoveď.";
     const sources: Array<{ title: string; uri: string }> = [];
-    const groundingChunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks;
     
+    // Extract sources from grounding metadata as required
+    const groundingChunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks;
     if (groundingChunks) {
       groundingChunks.forEach((chunk: any) => {
         if (chunk.web?.uri) {
-          sources.push({ title: chunk.web.title || 'Zdroj', uri: chunk.web.uri });
+          sources.push({ 
+            title: chunk.web.title || 'Technický zdroj', 
+            uri: chunk.web.uri 
+          });
         }
       });
     }
     
     return { text, sources };
   } catch (err: any) {
-    console.error("Gemini Error:", err);
-    // Zachytenie chyby o neplatnom kľúči podľa inštrukcií
-    if (err.message?.includes("Requested entity was not found") || err.message?.includes("API_KEY")) {
-      throw new Error("Requested entity was not found. Váš API kľúč nie je platný alebo nie je z fakturovaného projektu. Prosím, nastavte ho znova.");
+    console.error("Gemini API Error:", err);
+    // Handle specific project/key error as required by documentation
+    if (err.message?.includes("Requested entity was not found") || err.message?.includes("404") || err.message?.includes("API_KEY")) {
+      throw new Error("CHYBA KĽÚČA: Projekt nebol nájdený alebo kľúč je neplatný. Skontrolujte, či je váš kľúč z plateného projektu (billing enabled) v Google AI Studio.");
     }
-    throw err;
+    throw new Error(`AI Chyba: ${err.message || 'Nepodarilo sa získať odpoveď od modelu.'}`);
   }
 };
