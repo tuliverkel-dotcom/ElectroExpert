@@ -113,6 +113,58 @@ const App: React.FC = () => {
     }
   };
 
+  const handleSaveProject = async () => {
+    const existingProject = currentProjectId ? savedProjects.find(p => p.id === currentProjectId) : null;
+    const defaultName = existingProject ? existingProject.name : `Riešenie ${new Date().toLocaleTimeString()}`;
+    
+    const projectName = prompt("Zadajte názov pre uloženie aktuálneho riešenia:", defaultName);
+    if (!projectName) return;
+
+    const newProject: SavedProject = {
+      id: currentProjectId || Date.now().toString(),
+      name: projectName,
+      baseId: activeBaseId,
+      manuals: allManuals.filter(m => m.baseId === activeBaseId),
+      messages: messages,
+      mode: currentMode,
+      timestamp: Date.now()
+    };
+
+    try {
+      await saveProjectToDB(newProject);
+      setCurrentProjectId(newProject.id);
+      const allProjects = await getAllProjectsFromDB();
+      setSavedProjects(allProjects);
+      alert("✅ Riešenie bolo úspešne uložené.");
+    } catch (err) {
+      console.error(err);
+      alert("❌ Chyba pri ukladaní projektu.");
+    }
+  };
+
+  const handleNewProject = () => {
+    if (messages.length > 1 && !confirm("Naozaj chcete začať novú tému? Aktuálna história bude vymazaná (ak nie je uložená).")) {
+      return;
+    }
+    setMessages([welcomeMessage]);
+    setCurrentProjectId(null);
+  };
+
+  const handleDeleteBase = (id: string) => {
+    if (id === 'general') return;
+    if (confirm(`Naozaj chcete zmazať priečinok "${id}" a všetky manuály v ňom?`)) {
+      const manualsToDelete = allManuals.filter(m => m.baseId === id);
+      manualsToDelete.forEach(m => deleteManualFromDB(m.id));
+      setAllManuals(prev => prev.filter(m => m.baseId !== id));
+      
+      const updatedBases = knowledgeBases.filter(b => b.id !== id);
+      setKnowledgeBases(updatedBases);
+      localStorage.setItem('ee_knowledge_bases', JSON.stringify(updatedBases));
+      
+      if (activeBaseId === id) setActiveBaseId('general');
+    }
+  };
+
   const handleSendMessage = async (text: string) => {
     const userMsg: Message = { id: Date.now().toString(), role: 'user', content: text, timestamp: Date.now() };
     const updatedMessages = [...messages, userMsg];
@@ -220,19 +272,32 @@ const App: React.FC = () => {
           manuals={allManuals.filter(m => m.baseId === activeBaseId)} 
           onUploadClick={() => fileInputRef.current?.click()} 
           onRemove={(id) => { deleteManualFromDB(id); setAllManuals(prev => prev.filter(m => m.id !== id)); }}
-          onSaveProject={() => {}} 
-          onNewProject={() => setMessages([welcomeMessage])}
+          onSaveProject={handleSaveProject} 
+          onNewProject={handleNewProject}
           savedProjects={savedProjects} 
           onLoadProject={(id) => {
             const p = savedProjects.find(x => x.id === id);
-            if (p) { setMessages(p.messages); setCurrentProjectId(p.id); setActiveBaseId(p.baseId); }
+            if (p) { 
+              setMessages(p.messages); 
+              setCurrentProjectId(p.id); 
+              setActiveBaseId(p.baseId); 
+              if (p.mode) setCurrentMode(p.mode);
+            }
           }}
-          onDeleteProject={async (id, e) => { e.stopPropagation(); if(confirm("Zmazať riešenie?")){ await deleteProjectFromDB(id); setSavedProjects(prev => prev.filter(p => p.id !== id)); }}}
+          onDeleteProject={async (id, e) => { 
+            e.stopPropagation(); 
+            if(confirm("Zmazať toto uložené riešenie?")){ 
+              await deleteProjectFromDB(id); 
+              setSavedProjects(prev => prev.filter(p => p.id !== id));
+              if (currentProjectId === id) setCurrentProjectId(null);
+            } 
+          }}
           currentProjectId={currentProjectId}
           knowledgeBases={knowledgeBases}
           activeBaseId={activeBaseId}
           onSelectBase={setActiveBaseId}
-          onAddBase={() => { const n = prompt("Názov priečinka:"); if(n) setKnowledgeBases([...knowledgeBases, {id: n.toLowerCase().replace(/\s/g, ''), name: n, icon: '📁'}]) }}
+          onAddBase={() => { const n = prompt("Názov priečinka:"); if(n) { const id = n.toLowerCase().replace(/\s/g, ''); const newBases = [...knowledgeBases, {id, name: n, icon: '📁'}]; setKnowledgeBases(newBases); localStorage.setItem('ee_knowledge_bases', JSON.stringify(newBases)); }}}
+          onDeleteBase={handleDeleteBase}
           syncingFiles={syncingFiles}
         />
         <div className="flex-1 flex flex-col md:flex-row overflow-hidden relative z-10">
