@@ -10,7 +10,6 @@ import {
   getAllProjectsFromDB, 
   deleteProjectFromDB 
 } from './services/db';
-import { driveService } from './services/googleDrive';
 import { APP_VERSION } from './constants';
 import Sidebar from './components/Sidebar';
 import ChatInterface from './components/ChatInterface';
@@ -19,8 +18,7 @@ import LoginGate from './components/LoginGate';
 
 const App: React.FC = () => {
   const [isLocked, setIsLocked] = useState(true);
-  const [hasApiKey, setHasApiKey] = useState<boolean>(false);
-  const [driveStatus, setDriveStatus] = useState<'off' | 'on' | 'loading'>('off');
+  const [hasApiKey, setHasApiKey] = useState<boolean>(true); // Predvolene true, aby sme neblokovali
   const [syncingFiles, setSyncingFiles] = useState<Set<string>>(new Set());
   const [savedProjects, setSavedProjects] = useState<SavedProject[]>([]);
   const [currentProjectId, setCurrentProjectId] = useState<string | null>(null);
@@ -41,14 +39,23 @@ const App: React.FC = () => {
   const welcomeMessage: Message = {
     id: 'welcome',
     role: 'assistant',
-    content: 'ElectroExpert je pripravený. Uistite sa, že svieti zelený indikátor "API KĽÚČ OK".',
+    content: 'ElectroExpert je pripravený. AI systém beží na modeli Gemini 3 Flash.',
     timestamp: Date.now(),
   };
 
   const [messages, setMessages] = useState<Message[]>([welcomeMessage]);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Inteligentná kontrola kľúča bez otravných alertov
   const checkKeyStatus = async () => {
+    // 1. Priorita: Systémový environmentálny kľúč
+    const envKey = process.env.API_KEY;
+    if (envKey && envKey !== 'undefined' && envKey.length > 5) {
+      setHasApiKey(true);
+      return;
+    }
+
+    // 2. Priorita: AI Studio Bridge (len ak nie je env kľúč)
     const win = window as any;
     if (win.aistudio?.hasSelectedApiKey) {
       try {
@@ -57,12 +64,15 @@ const App: React.FC = () => {
       } catch (e) {
         setHasApiKey(false);
       }
+    } else {
+      // Ak nie sme v AI Studiu a nemáme env kľúč, budeme musieť varovať až pri pokuse o správu
+      setHasApiKey(false);
     }
   };
 
   useEffect(() => {
     checkKeyStatus();
-    const interval = setInterval(checkKeyStatus, 5000);
+    const interval = setInterval(checkKeyStatus, 10000);
     return () => clearInterval(interval);
   }, []);
 
@@ -76,10 +86,14 @@ const App: React.FC = () => {
   const handleSelectKey = async () => {
     const win = window as any;
     if (win.aistudio?.openSelectKey) {
-      await win.aistudio.openSelectKey();
-      setHasApiKey(true); // Predpokladáme úspech podľa pravidiel race condition
+      try {
+        await win.aistudio.openSelectKey();
+        setHasApiKey(true);
+      } catch (e) {
+        console.error("Key selection failed", e);
+      }
     } else {
-      alert("Dialóg pre kľúč nie je dostupný v tomto prehliadači.");
+      console.log("AI Studio Bridge not detected, relying on process.env.API_KEY");
     }
   };
 
@@ -101,9 +115,6 @@ const App: React.FC = () => {
         sources 
       }]);
     } catch (error: any) {
-      if (error.message?.includes("API kľúč") || error.message?.includes("kľúča")) {
-        setHasApiKey(false);
-      }
       setMessages(prev => [...prev, { 
         id: 'err-' + Date.now(), 
         role: 'assistant', 
@@ -135,13 +146,7 @@ const App: React.FC = () => {
     }
   };
 
-  if (isLocked) return (
-    <LoginGate 
-      onUnlock={() => setIsLocked(false)} 
-      hasApiKey={hasApiKey} 
-      onSelectKey={handleSelectKey} 
-    />
-  );
+  if (isLocked) return <LoginGate onUnlock={() => setIsLocked(false)} hasApiKey={hasApiKey} onSelectKey={handleSelectKey} />;
 
   return (
     <div className="flex flex-col h-screen bg-slate-900 text-slate-100 font-sans selection:bg-blue-500/30">
@@ -153,23 +158,23 @@ const App: React.FC = () => {
           </div>
           
           <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-[10px] font-bold border transition-all ${
-            hasApiKey ? 'bg-green-500/10 text-green-400 border-green-500/20' : 'bg-red-500/10 text-red-400 border-red-500/20 animate-pulse'
+            hasApiKey ? 'bg-blue-500/10 text-blue-400 border-blue-500/20' : 'bg-red-500/10 text-red-400 border-red-500/20'
           }`}>
-            <div className={`w-1.5 h-1.5 rounded-full ${hasApiKey ? 'bg-green-500' : 'bg-red-500'}`}></div>
-            {hasApiKey ? 'API KĽÚČ OK' : 'CHÝBA API KĽÚČ'}
+            <div className={`w-1.5 h-1.5 rounded-full ${hasApiKey ? 'bg-blue-500 animate-pulse' : 'bg-red-500'}`}></div>
+            {hasApiKey ? 'AI SYSTÉM AKTÍVNY' : 'AI KĽÚČ NENÁJDENÝ'}
           </div>
         </div>
 
         <div className="flex items-center gap-3">
-           <button 
-             onClick={handleSelectKey}
-             className={`px-4 py-2 rounded-xl text-[10px] font-black transition-all border flex items-center gap-2 ${
-               hasApiKey ? 'bg-slate-700 border-slate-600 text-slate-400' : 'bg-blue-600 border-blue-400 text-white animate-bounce'
-             }`}
-           >
-             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" /></svg>
-             {hasApiKey ? 'ZMENIŤ KĽÚČ' : 'NASTAVIŤ API KĽÚČ'}
-           </button>
+           {(window as any).aistudio && (
+             <button 
+               onClick={handleSelectKey}
+               className="px-3 py-1.5 rounded-lg text-[9px] font-bold bg-slate-700 hover:bg-slate-600 text-slate-300 border border-slate-600 transition-all flex items-center gap-2"
+             >
+               <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" /></svg>
+               NASTAVENIA AI STUDIO
+             </button>
+           )}
 
            <div className="flex bg-slate-950 p-1 rounded-xl border border-slate-700">
              {['SCHEMATIC', 'LOGIC', 'SETTINGS'].map((mode) => (

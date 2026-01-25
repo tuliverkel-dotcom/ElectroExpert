@@ -9,23 +9,26 @@ export const analyzeManual = async (
   history: Message[]
 ): Promise<{ text: string; sources?: Array<{ title: string; uri: string }> }> => {
   
-  // Vždy vytvoríme novú inštanciu tesne pred volaním, aby sme zachytili najnovší kľúč z dialógu
+  // Získanie kľúča zo systémového prostredia
   const apiKey = process.env.API_KEY;
   
-  if (!apiKey || apiKey === "undefined") {
-    throw new Error("API kľúč nie je detegovaný. Prosím, kliknite na 'NASTAVIŤ API KĽÚČ' v hornom menu.");
+  // Kontrola, či kľúč nie je len reťazec "undefined" alebo prázdny
+  if (!apiKey || apiKey === "undefined" || apiKey.length < 5) {
+    throw new Error("AI kľúč nie je v systéme dostupný. Ak ste v AI Studiu, použite tlačidlo v hlavičke.");
   }
 
+  // Inicializácia AI
   const ai = new GoogleGenAI({ apiKey });
   
-  // gemini-3-pro-image-preview je ideálny pre technické manuály s obrázkami a vyžaduje manuálny výber kľúča
-  const modelName = 'gemini-3-pro-image-preview';
+  // gemini-3-flash-preview je ideálny: rýchly, multimodal (PDF/Obrázky) a podporuje Search
+  const modelName = 'gemini-3-flash-preview';
 
-  const systemInstruction = `Si špičkový elektro-inžinier. Analyzuješ technické manuály a schémy.
-Režim: ${mode}. Jazyk: Slovenčina.
-Používaj Google Search na overenie noriem (STN, EN).
-Ak vidíš schému v obrázku, opíš ju technicky.
-Ak navrhuješ riešenie, buď stručný a presný.`;
+  const systemInstruction = `Si elitný elektro-inžinier so špecializáciou na revízie a priemyselnú automatizáciu.
+Tvojou úlohou je radiť na základe priložených manuálov.
+Pracuj v režime: ${mode}. Odpovedaj výhradne v slovenčine.
+Ak používateľ nahrá obrázok schémy, analyzuj zapojenie a navrhni riešenie.
+Využívaj Google Search pre overenie aktuálnych noriem STN/EN.
+Ak navrhuješ schému, použi Mermaid kód.`;
 
   const chatHistory = history
     .filter(m => !m.id.startsWith('err-') && m.id !== 'welcome')
@@ -59,9 +62,10 @@ Ak navrhuješ riešenie, buď stručný a presný.`;
       }
     });
 
-    const text = response.text || "Bez odpovede.";
+    const text = response.text || "Model neodpovedal.";
     const sources: Array<{ title: string; uri: string }> = [];
     
+    // Extrakcia zdrojov z vyhľadávania
     const groundingChunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks;
     if (groundingChunks) {
       groundingChunks.forEach((chunk: any) => {
@@ -73,10 +77,7 @@ Ak navrhuješ riešenie, buď stručný a presný.`;
     
     return { text, sources };
   } catch (err: any) {
-    console.error("Gemini Error:", err);
-    if (err.message?.includes("not found") || err.message?.includes("404")) {
-      throw new Error("Projekt alebo API kľúč nebol nájdený. Kliknite na 'NASTAVIŤ API KĽÚČ' a vyberte kľúč z plateného projektu.");
-    }
-    throw new Error(`AI Chyba: ${err.message}`);
+    console.error("Gemini API Error:", err);
+    throw new Error(`AI Chyba: ${err.message || 'Chyba pripojenia'}`);
   }
 };
