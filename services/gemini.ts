@@ -9,26 +9,23 @@ export const analyzeManual = async (
   history: Message[]
 ): Promise<{ text: string; sources?: Array<{ title: string; uri: string }> }> => {
   
-  // Získanie kľúča zo systémového prostredia
   const apiKey = process.env.API_KEY;
   
-  // Kontrola, či kľúč nie je len reťazec "undefined" alebo prázdny
-  if (!apiKey || apiKey === "undefined" || apiKey.length < 5) {
-    throw new Error("AI kľúč nie je v systéme dostupný. Ak ste v AI Studiu, použite tlačidlo v hlavičke.");
+  if (!apiKey || apiKey === "undefined") {
+    throw new Error("API kľúč nie je nakonfigurovaný v systéme. Prosím, nastavte ho v prostredí.");
   }
 
-  // Inicializácia AI
   const ai = new GoogleGenAI({ apiKey });
   
-  // gemini-3-flash-preview je ideálny: rýchly, multimodal (PDF/Obrázky) a podporuje Search
-  const modelName = 'gemini-3-flash-preview';
+  // Model Pro pre komplexné technické úlohy
+  const modelName = 'gemini-3-pro-preview';
 
-  const systemInstruction = `Si elitný elektro-inžinier so špecializáciou na revízie a priemyselnú automatizáciu.
-Tvojou úlohou je radiť na základe priložených manuálov.
-Pracuj v režime: ${mode}. Odpovedaj výhradne v slovenčine.
-Ak používateľ nahrá obrázok schémy, analyzuj zapojenie a navrhni riešenie.
-Využívaj Google Search pre overenie aktuálnych noriem STN/EN.
-Ak navrhuješ schému, použi Mermaid kód.`;
+  const systemInstruction = `Si elitný elektro-inžinier a špecialista na technickú dokumentáciu.
+Analyzuješ priložené manuály a schémy.
+Pracuješ v režime: ${mode}. Jazyk: SLOVENČINA.
+Ak je priložený obrázok, identifikuj komponenty a ich zapojenie.
+Využívaj Google Search na kontrolu aktuálnych elektrotechnických noriem (STN, EN, IEC).
+Odpovedaj vecne, odborne a presne.`;
 
   const chatHistory = history
     .filter(m => !m.id.startsWith('err-') && m.id !== 'welcome')
@@ -62,10 +59,9 @@ Ak navrhuješ schému, použi Mermaid kód.`;
       }
     });
 
-    const text = response.text || "Model neodpovedal.";
+    const text = response.text || "Bez odozvy od AI.";
     const sources: Array<{ title: string; uri: string }> = [];
     
-    // Extrakcia zdrojov z vyhľadávania
     const groundingChunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks;
     if (groundingChunks) {
       groundingChunks.forEach((chunk: any) => {
@@ -77,7 +73,7 @@ Ak navrhuješ schému, použi Mermaid kód.`;
     
     return { text, sources };
   } catch (err: any) {
-    console.error("Gemini API Error:", err);
-    throw new Error(`AI Chyba: ${err.message || 'Chyba pripojenia'}`);
+    console.error("Gemini Error:", err);
+    throw new Error(`AI Chyba: ${err.message || 'Nepodarilo sa spracovať požiadavku.'}`);
   }
 };
