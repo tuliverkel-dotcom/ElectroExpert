@@ -3,11 +3,9 @@ import React, { useState, useEffect } from 'react';
 
 interface LoginGateProps {
   onUnlock: () => void;
-  hasApiKey?: boolean;
-  onSelectKey?: () => void;
 }
 
-const LoginGate: React.FC<LoginGateProps> = ({ onUnlock, hasApiKey, onSelectKey }) => {
+const LoginGate: React.FC<LoginGateProps> = ({ onUnlock }) => {
   const [password, setPassword] = useState('');
   const [error, setError] = useState(false);
   const [isNewUser, setIsNewUser] = useState(false);
@@ -57,42 +55,18 @@ const LoginGate: React.FC<LoginGateProps> = ({ onUnlock, hasApiKey, onSelectKey 
         <div className="flex flex-col items-center mb-8">
           <div className="w-16 h-16 bg-blue-600/10 rounded-2xl flex items-center justify-center mb-4 border border-blue-500/30">
             <svg className={`w-8 h-8 ${error ? 'text-red-500 animate-shake' : 'text-blue-500'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2-2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
             </svg>
           </div>
           <h1 className="text-2xl font-black text-white tracking-tighter uppercase italic">
             Electro<span className="text-blue-500">Expert</span>
           </h1>
           <p className="text-[10px] text-slate-500 uppercase font-bold tracking-[0.2em] mt-1 text-center">
-            Pracovisko s technickou AI
+            Zabezpečené pracovisko
           </p>
         </div>
 
-        {/* API KĽÚČ SEKCOA - TERAZ NA ZAČIATKU PRE MAXIMÁLNU VIDITEĽNOSŤ */}
-        {onSelectKey && (
-          <div className="mb-8 p-4 bg-slate-950/50 rounded-2xl border border-slate-800 border-dashed">
-            <div className="flex items-center justify-between mb-3">
-               <span className={`text-[10px] font-black uppercase tracking-widest ${hasApiKey ? 'text-green-500' : 'text-red-500 animate-pulse'}`}>
-                 {hasApiKey ? '✓ AI KĽÚČ PRIPOJENÝ' : '⚠ CHÝBA AI KĽÚČ'}
-               </span>
-            </div>
-            <button 
-              onClick={onSelectKey}
-              className={`w-full py-3.5 rounded-xl text-[11px] font-black transition-all border uppercase tracking-[0.1em] shadow-xl ${
-                hasApiKey 
-                ? 'bg-slate-800 text-slate-400 border-slate-700 hover:bg-slate-700' 
-                : 'bg-red-600 text-white border-red-400 hover:bg-red-500 animate-pulse'
-              }`}
-            >
-              {hasApiKey ? 'Zmeniť / Spravovať API Kľúč' : 'NASTAVIŤ API KĽÚČ (KLIKNI TU)'}
-            </button>
-            <p className="text-[9px] text-slate-600 italic text-center mt-2 leading-tight">
-              Bez nastavenia kľúča nebude AI analýza dostupná.
-            </p>
-          </div>
-        )}
-
-        <form onSubmit={handleAction} className="space-y-4 pt-4 border-t border-slate-800/50">
+        <form onSubmit={handleAction} className="space-y-4">
           <div className="space-y-1">
             <label className="text-[10px] font-bold text-slate-400 uppercase ml-1">
               {isNewUser ? 'Vytvorte si heslo do aplikácie' : 'Vstupné heslo'}
@@ -128,9 +102,9 @@ const LoginGate: React.FC<LoginGateProps> = ({ onUnlock, hasApiKey, onSelectKey 
 
           <button
             type="submit"
-            className="w-full bg-blue-600 hover:bg-blue-500 text-white font-black py-4 rounded-xl shadow-lg transition-all active:scale-95 uppercase text-xs tracking-widest"
+            className="w-full bg-blue-600 hover:bg-blue-500 text-white font-black py-4 rounded-xl shadow-lg transition-all active:scale-95 uppercase text-xs tracking-widest mt-4"
           >
-            {isNewUser ? 'Vytvoriť profil a vstúpiť' : 'Odomknúť a vstúpiť'}
+            {isNewUser ? 'Vytvoriť a vstúpiť' : 'Odomknúť prístup'}
           </button>
         </form>
       </div>

@@ -19,7 +19,6 @@ import LoginGate from './components/LoginGate';
 
 const App: React.FC = () => {
   const [isLocked, setIsLocked] = useState(true);
-  const [hasApiKey, setHasApiKey] = useState<boolean>(true); // Default to true to allow attempt if env var exists
   const [driveStatus, setDriveStatus] = useState<'off' | 'on' | 'loading'>('off');
   const [syncingFiles, setSyncingFiles] = useState<Set<string>>(new Set());
   const [savedProjects, setSavedProjects] = useState<SavedProject[]>([]);
@@ -41,27 +40,14 @@ const App: React.FC = () => {
   const welcomeMessage: Message = {
     id: 'welcome',
     role: 'assistant',
-    content: 'ElectroExpert je pripravený. Ak systém nahlási chybu kľúča, použite tlačidlo "NASTAVIŤ AI KĽÚČ" vpravo hore.',
+    content: 'ElectroExpert je pripravený. Môžete začať analýzu vašej dokumentácie.',
     timestamp: Date.now(),
   };
 
   const [messages, setMessages] = useState<Message[]>([welcomeMessage]);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const checkKey = async () => {
-    const win = window as any;
-    if (win.aistudio && typeof win.aistudio.hasSelectedApiKey === 'function') {
-      try {
-        const ok = await win.aistudio.hasSelectedApiKey();
-        setHasApiKey(ok);
-      } catch (e) {
-        console.warn("Key check failed, assuming env key exists.");
-      }
-    }
-  };
-
   useEffect(() => {
-    checkKey();
     if (!isLocked) {
       getAllManualsFromDB().then(setAllManuals);
       getAllProjectsFromDB().then(setSavedProjects);
@@ -72,20 +58,6 @@ const App: React.FC = () => {
       });
     }
   }, [isLocked]);
-
-  const handleSelectKey = async () => {
-    const win = window as any;
-    if (win.aistudio && typeof win.aistudio.openSelectKey === 'function') {
-      try {
-        await win.aistudio.openSelectKey();
-        setHasApiKey(true);
-      } catch (e) {
-        console.error("Error opening key selector:", e);
-      }
-    } else {
-      alert("Tento systém vyžaduje prostredie Google AI Studio pre výber kľúča. Ak ho nevidíte, uistite sa, že ste v správnom editore.");
-    }
-  };
 
   const handleDriveConnect = async () => {
     setDriveStatus('loading');
@@ -121,9 +93,6 @@ const App: React.FC = () => {
         sources 
       }]);
     } catch (error: any) {
-      if (error.message?.includes("CHYBA KĽÚČA") || error.message?.includes("API_KEY")) {
-        setHasApiKey(false);
-      }
       setMessages(prev => [...prev, { 
         id: 'err-' + Date.now(), 
         role: 'assistant', 
@@ -188,7 +157,7 @@ const App: React.FC = () => {
     }
   };
 
-  if (isLocked) return <LoginGate onUnlock={() => setIsLocked(false)} hasApiKey={hasApiKey} onSelectKey={handleSelectKey} />;
+  if (isLocked) return <LoginGate onUnlock={() => setIsLocked(false)} />;
 
   return (
     <div className="flex flex-col h-screen bg-slate-900 text-slate-100 font-sans selection:bg-blue-500/30">
@@ -210,18 +179,6 @@ const App: React.FC = () => {
         </div>
 
         <div className="flex items-center gap-3">
-           <button 
-             onClick={handleSelectKey}
-             className={`px-4 py-2.5 rounded-xl text-[10px] font-black transition-all border-2 flex items-center gap-2 shadow-2xl z-30 ${
-               hasApiKey 
-               ? 'bg-slate-700 text-slate-300 border-slate-600 hover:bg-slate-600' 
-               : 'bg-red-600 text-white border-white animate-pulse shadow-red-900/50 scale-110'
-             }`}
-           >
-             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" /></svg>
-             {hasApiKey ? 'SPRAVOVAŤ AI KĽÚČ' : 'NASTAVIŤ AI KĽÚČ !'}
-           </button>
-
            <div className="flex bg-slate-950 p-1 rounded-xl border border-slate-700">
              {['SCHEMATIC', 'LOGIC', 'SETTINGS'].map((mode) => (
                <button key={mode} onClick={() => setCurrentMode(mode as AnalysisMode)} className={`px-4 py-1.5 rounded-lg text-[9px] font-black transition-all ${currentMode === mode ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-500 hover:text-slate-300'}`}>
@@ -250,11 +207,6 @@ const App: React.FC = () => {
           syncingFiles={syncingFiles}
         />
         <div className="flex-1 flex flex-col md:flex-row overflow-hidden relative">
-          {!hasApiKey && !isLocked && (
-            <div className="absolute top-4 left-1/2 -translate-x-1/2 z-50 bg-red-600 text-white px-6 py-3 rounded-full font-black text-xs shadow-2xl animate-bounce border-2 border-white pointer-events-none">
-              ⚠ NASTAVTE API KĽÚČ PRE FUNKČNOSŤ AI
-            </div>
-          )}
           <ChatInterface messages={messages} onSendMessage={handleSendMessage} isAnalyzing={isAnalyzing} activeManualsCount={allManuals.filter(m => m.baseId === activeBaseId).length} />
           <ManualViewer manuals={allManuals.filter(m => m.baseId === activeBaseId)} />
         </div>
