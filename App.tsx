@@ -16,6 +16,7 @@ import Sidebar from './components/Sidebar';
 import ChatInterface from './components/ChatInterface';
 import ManualViewer from './components/ManualViewer';
 import LoginGate from './components/LoginGate';
+import SettingsModal from './components/SettingsModal';
 
 const App: React.FC = () => {
   const [isLocked, setIsLocked] = useState(true);
@@ -28,6 +29,7 @@ const App: React.FC = () => {
   const [activeBaseId, setActiveBaseId] = useState<string>('general');
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [currentMode, setCurrentMode] = useState<AnalysisMode>(AnalysisMode.SCHEMATIC);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   
   const [knowledgeBases, setKnowledgeBases] = useState<KnowledgeBase[]>(() => {
     const saved = localStorage.getItem('ee_knowledge_bases');
@@ -41,7 +43,7 @@ const App: React.FC = () => {
   const welcomeMessage: Message = {
     id: 'welcome',
     role: 'assistant',
-    content: 'Systém ElectroExpert Advanced (PRO Core) aktivovaný. Pripravený na hlbokú technickú analýzu schém a logiky s využitím Chain-of-Thought uvažovania.',
+    content: 'Systém ElectroExpert Advanced (PRO Core) aktivovaný.\n\nPre zdieľanie riešenia technikovi použite nové tlačidlá (WhatsApp/Email) pod touto správou. Pred začatím sa uistite, že máte zvolený správny REŽIM ANALÝZY hore.',
     timestamp: Date.now(),
   };
 
@@ -50,6 +52,13 @@ const App: React.FC = () => {
 
   const isEnvKeyPresent = !!(process.env.API_KEY && process.env.API_KEY !== 'undefined');
   const isKeyActive = isEnvKeyPresent || !!runtimeApiKey;
+
+  // <--- TU JE ZMENA: Slovenské názvy pre tlačidlá hore
+  const modes = [
+    { id: AnalysisMode.SCHEMATIC, label: 'SCHÉMY' },
+    { id: AnalysisMode.LOGIC, label: 'LOGIKA' },
+    { id: AnalysisMode.SETTINGS, label: 'KONFIGURÁCIA' }
+  ];
 
   useEffect(() => {
     if (!isLocked) {
@@ -82,12 +91,8 @@ const App: React.FC = () => {
           } catch (e) {
             console.error("Cloud config parse fail", e);
           }
-        } else if (!isEnvKeyPresent) {
-          const key = prompt("Vložte váš Gemini API kľúč (PRO model vyžaduje kľúč s povoleným billingom):");
-          if (key) {
-            setRuntimeApiKey(key);
-            await driveService.saveConfig('.ai_settings.json', JSON.stringify({ apiKey: key }));
-          }
+        } else if (!isEnvKeyPresent && !runtimeApiKey) {
+          setIsSettingsOpen(true);
         }
       };
       syncKeyFromDrive();
@@ -95,18 +100,18 @@ const App: React.FC = () => {
   }, [driveStatus]);
 
   const handleDriveConnect = async () => {
+    let clientId = localStorage.getItem('ee_google_client_id');
+    if (!clientId) {
+      setIsSettingsOpen(true);
+      return;
+    }
+
     setDriveStatus('loading');
     try {
-      let clientId = localStorage.getItem('ee_google_client_id');
-      if (!clientId) {
-        clientId = prompt("Vložte Google Client ID:");
-        if (clientId) driveService.setClientId(clientId);
-      }
-      if (clientId) {
-        const success = await driveService.signIn();
-        setDriveStatus(success ? 'on' : 'off');
-      } else {
-        setDriveStatus('off');
+      const success = await driveService.signIn();
+      setDriveStatus(success ? 'on' : 'off');
+      if (!success) {
+        alert("Prihlásenie zlyhalo. Skontrolujte, či váš prehliadač (najmä v mobile) neblokuje vyskakovacie okná.");
       }
     } catch (e) {
       setDriveStatus('off');
@@ -242,7 +247,7 @@ const App: React.FC = () => {
               }`}
             >
               <div className={`w-1.5 h-1.5 rounded-full ${driveStatus === 'on' ? 'bg-green-500 animate-pulse' : 'bg-slate-500'}`}></div>
-              {driveStatus === 'on' ? 'CLOUD AKTÍVNY' : 'OFFLINE MOD'}
+              {driveStatus === 'on' ? 'CLOUD AKTÍVNY' : (driveStatus === 'loading' ? 'PRIPÁJANIE...' : 'OFFLINE MOD')}
             </button>
 
             <div className={`text-[9px] font-bold px-2 py-1 rounded border flex items-center gap-2 ${isKeyActive ? 'text-blue-400 border-blue-500/20 bg-blue-500/5' : 'text-red-400 border-red-500/20 bg-red-500/5'}`}>
@@ -252,18 +257,30 @@ const App: React.FC = () => {
           </div>
         </div>
 
-        <div className="flex items-center gap-3">
-           <div className="flex bg-slate-950 p-1 rounded-xl border border-slate-700">
-             {['SCHEMATIC', 'LOGIC', 'SETTINGS'].map((mode) => (
+        <div className="flex items-center gap-4">
+           {/* <--- TU JE ZMENA: Vylepšené prepínanie režimov */}
+           <div className="flex items-center gap-2 bg-slate-950 p-1 rounded-xl border border-slate-700 mr-2">
+             <span className="text-[8px] font-black text-slate-500 uppercase px-2">Režim AI:</span>
+             {modes.map((m) => (
                <button 
-                 key={mode} 
-                 onClick={() => setCurrentMode(mode as AnalysisMode)} 
-                 className={`px-4 py-1.5 rounded-lg text-[9px] font-black transition-all ${currentMode === mode ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-500 hover:text-slate-300'}`}
+                 key={m.id} 
+                 onClick={() => setCurrentMode(m.id)} 
+                 className={`px-3 py-1.5 rounded-lg text-[9px] font-black transition-all ${currentMode === m.id ? 'bg-blue-600 text-white shadow-lg scale-105' : 'text-slate-500 hover:text-slate-300'}`}
                >
-                 {mode}
+                 {m.label}
                </button>
              ))}
            </div>
+           
+           <div className="w-px h-8 bg-slate-700"></div>
+
+           <button 
+             onClick={() => setIsSettingsOpen(true)}
+             title="Nastavenia účtu a pripojenia"
+             className="p-2.5 text-slate-400 hover:text-white transition-colors bg-slate-800 rounded-xl border border-slate-700 shadow-xl hover:shadow-blue-900/20 hover:border-slate-500"
+           >
+             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+           </button>
         </div>
       </header>
 
@@ -306,6 +323,20 @@ const App: React.FC = () => {
         </div>
       </main>
       <input type="file" ref={fileInputRef} className="hidden" multiple accept="image/*,application/pdf" onChange={handleFileUpload} />
+      
+      <SettingsModal 
+        isOpen={isSettingsOpen} 
+        onClose={() => setIsSettingsOpen(false)} 
+        clientId={localStorage.getItem('ee_google_client_id') || ''} 
+        onSaveClientId={(id) => { driveService.setClientId(id); }} 
+        apiKey={runtimeApiKey}
+        onSaveApiKey={(key) => { 
+          setRuntimeApiKey(key);
+          if (driveStatus === 'on') {
+            driveService.saveConfig('.ai_settings.json', JSON.stringify({ apiKey: key }));
+          }
+        }}
+      />
     </div>
   );
 };

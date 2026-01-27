@@ -25,23 +25,17 @@ Tvojou úlohou je analyzovať technickú dokumentáciu s extrémnou presnosťou.
 
 REŽIM ANALÝZY: ${mode}
 
-PRAVIDLÁ PRE MERMAID SCHÉMY (KRITICKÉ):
-1. VŽDY používaj úvodzovky pre texty v uzloch, napr: A["Hlavný istič 230V"]
-2. Nepoužívaj v uzloch špeciálne znaky ako (), [], {} bez úvodzoviek.
-3. Začínaj schému vždy kľúčovým slovom "graph TD" alebo "flowchart TD".
-4. Používaj subgrafy pre logické celky (napr. napájacia časť, riadiaca časť).
-5. Ak je schéma príliš komplexná, rozdeľ ju na viacero menších diagramov.
+PRAVIDLÁ PRE MERMAID SCHÉMY:
+1. VŽDY používaj úvodzovky pre texty v uzloch: A["Text"]
+2. Začínaj "graph TD" alebo "flowchart TD".
+3. Ak je schéma komplexná, rozdeľ ju na subgrafy.
 
-PROCES ANALÝZY:
-- DEEP SCAN: Hľadaj pinouty, napäťové úrovne a logické väzby.
-- STEP-BY-STEP: Každý technický krok najprv zdôvodni.
-- SEARCH: Použi Google Search na overenie nejasných komponentov.
+Odpovedaj výhradne v slovenčine.`;
 
-Odpovedaj výhradne v slovenčine. Ak informácia v manuáli chýba, upozorni na to.`;
-
+  // Optimalizácia: Posielame len posledných 10 správ pre zachovanie kontextu bez preťaženia pamäte
   const chatHistory = history
     .filter(m => !m.id.startsWith('err-') && m.id !== 'welcome')
-    .slice(0, -1)
+    .slice(-10) 
     .map(m => ({
       role: m.role === 'user' ? ('user' as const) : ('model' as const),
       parts: [{ text: m.content }]
@@ -66,9 +60,9 @@ Odpovedaj výhradne v slovenčine. Ak informácia v manuáli chýba, upozorni na
       ],
       config: {
         systemInstruction,
-        temperature: 0.1, // Minimálna kreativita = maximálna technická presnosť
+        temperature: 0.1,
         thinkingConfig: { 
-          thinkingBudget: 16384 
+          thinkingBudget: 12288 // Optimalizované pre rýchlejšiu odozvu
         },
         tools: [{ googleSearch: {} }]
       }
