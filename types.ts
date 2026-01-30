@@ -18,6 +18,7 @@ export interface ManualFile {
 export enum AnalysisMode {
   SCHEMATIC = 'SCHEMATIC',
   LOGIC = 'LOGIC',
+  DOCUMENTATION = 'DOCUMENTATION', // <--- NOVÝ REŽIM
   SETTINGS = 'SETTINGS'
 }
 

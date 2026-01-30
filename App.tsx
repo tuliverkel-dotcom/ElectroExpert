@@ -43,7 +43,7 @@ const App: React.FC = () => {
   const welcomeMessage: Message = {
     id: 'welcome',
     role: 'assistant',
-    content: 'Systém ElectroExpert Advanced (PRO Core) aktivovaný.\n\nPre zdieľanie riešenia technikovi použite nové tlačidlá (WhatsApp/Email) pod touto správou. Pred začatím sa uistite, že máte zvolený správny REŽIM ANALÝZY hore.',
+    content: 'Systém ElectroExpert Advanced (PRO Core) aktivovaný.\n\nPre zdieľanie riešenia technikovi použite nové tlačidlá (WhatsApp/Email) pod touto správou. Pre vytvorenie manuálu prepnite režim na DOKUMENTÁCIA.',
     timestamp: Date.now(),
   };
 
@@ -53,10 +53,11 @@ const App: React.FC = () => {
   const isEnvKeyPresent = !!(process.env.API_KEY && process.env.API_KEY !== 'undefined');
   const isKeyActive = isEnvKeyPresent || !!runtimeApiKey;
 
-  // <--- TU JE ZMENA: Slovenské názvy pre tlačidlá hore
+  // <--- TU JE ZMENA: Pridaný režim DOKUMENTÁCIA
   const modes = [
     { id: AnalysisMode.SCHEMATIC, label: 'SCHÉMY' },
     { id: AnalysisMode.LOGIC, label: 'LOGIKA' },
+    { id: AnalysisMode.DOCUMENTATION, label: 'DOKUMENTÁCIA' },
     { id: AnalysisMode.SETTINGS, label: 'KONFIGURÁCIA' }
   ];
 
@@ -258,7 +259,7 @@ const App: React.FC = () => {
         </div>
 
         <div className="flex items-center gap-4">
-           {/* <--- TU JE ZMENA: Vylepšené prepínanie režimov */}
+           {/* <--- TU JE ZMENA: Vylepšený zoznam režimov vrátane Dokumentácie */}
            <div className="flex items-center gap-2 bg-slate-950 p-1 rounded-xl border border-slate-700 mr-2">
              <span className="text-[8px] font-black text-slate-500 uppercase px-2">Režim AI:</span>
              {modes.map((m) => (
