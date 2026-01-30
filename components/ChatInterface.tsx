@@ -166,6 +166,19 @@ const MessageItem = memo(({ msg, onZoom, onOpenDoc }: MessageItemProps) => {
       }
       else if (fullBlock.startsWith('```html')) {
         const htmlCode = fullBlock.replace('```html\n', '').replace('```', '');
+        
+        const downloadFile = () => {
+           const blob = new Blob([htmlCode], { type: 'text/html;charset=utf-8' });
+           const url = URL.createObjectURL(blob);
+           const a = document.createElement('a');
+           a.href = url;
+           a.download = `manual_export_${Date.now()}.html`;
+           document.body.appendChild(a);
+           a.click();
+           document.body.removeChild(a);
+           URL.revokeObjectURL(url);
+        };
+
         parts.push(
           <div key={`doc-${match.index}`} className="my-6">
             <div className="bg-slate-800 border border-slate-700 rounded-2xl p-6 shadow-xl flex flex-col items-center text-center space-y-4 max-w-sm mx-auto">
@@ -174,15 +187,23 @@ const MessageItem = memo(({ msg, onZoom, onOpenDoc }: MessageItemProps) => {
                </div>
                <div>
                  <h3 className="text-lg font-bold text-white">Manuál Vygenerovaný</h3>
-                 <p className="text-xs text-slate-400 mt-1">Kompletná technická dokumentácia je pripravená na čítanie alebo tlač.</p>
+                 <p className="text-xs text-slate-400 mt-1">Súbor je pripravený. Pre veľké manuály odporúčame stiahnuť súbor namiesto náhľadu.</p>
                </div>
-               <button 
-                 onClick={() => onOpenDoc(htmlCode)}
-                 className="w-full bg-purple-600 hover:bg-purple-500 text-white font-bold py-3 rounded-xl transition-all shadow-lg active:scale-95 flex items-center justify-center gap-2"
-               >
-                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
-                 OTVORIŤ DOKUMENT
-               </button>
+               <div className="flex flex-col gap-2 w-full">
+                  <button 
+                    onClick={downloadFile}
+                    className="w-full bg-green-600 hover:bg-green-500 text-white font-bold py-3 rounded-xl transition-all shadow-lg active:scale-95 flex items-center justify-center gap-2"
+                  >
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003 3h-10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+                    STIAHNUŤ SÚBOR (Bezpečné)
+                  </button>
+                  <button 
+                    onClick={() => onOpenDoc(htmlCode)}
+                    className="w-full bg-slate-700 hover:bg-purple-600 text-slate-300 hover:text-white font-bold py-2 rounded-xl transition-all border border-slate-600 hover:border-purple-500 active:scale-95 text-xs"
+                  >
+                    OTVORIŤ NÁHĽAD (Riskantné pre veľké súbory)
+                  </button>
+               </div>
             </div>
           </div>
         );
@@ -212,7 +233,7 @@ const MessageItem = memo(({ msg, onZoom, onOpenDoc }: MessageItemProps) => {
      if (platform === 'whatsapp') window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank');
      else if (platform === 'email') window.open(`mailto:?subject=${encodeURIComponent("Technické riešenie")}&body=${encodeURIComponent(text)}`, '_self');
      else if (platform === 'copy') { navigator.clipboard.writeText(text); alert("Skopírované."); }
-     else if (platform === 'doc') alert("Pre stiahnutie dokumentácie použite tlačidlo 'OTVORIŤ DOKUMENT' a potom 'STIAHNUŤ PDF'.");
+     else if (platform === 'doc') alert("Pre stiahnutie dokumentácie použite tlačidlo 'STIAHNUŤ SÚBOR'.");
   };
 
   return (

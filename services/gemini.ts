@@ -21,10 +21,19 @@ export const analyzeManual = async (
   const modelName = 'gemini-3-pro-preview';
 
   let systemInstruction = "";
+  let thinkingBudget = 0; // Defaultne vypnuté pre dokumentáciu aby sme šetrili tokeny na text
+  let maxOutputTokens = 8192; // Default limit
 
   if (mode === AnalysisMode.DOCUMENTATION) {
+    // PRE DOKUMENTÁCIU: Vypíname thinking, maximalizujeme output
+    thinkingBudget = 0; 
+    maxOutputTokens = 65536; // Pokus o maximálny možný output pre dlhé manuály
+
     systemInstruction = `Si Profesionálny Technický Spisovateľ (Technical Writer) a Prekladateľ pre výťahové systémy.
 Tvojou úlohou NIE JE chatovať, ale VYGENEROVAŤ KOMPLETNÝ MANUÁL vo formáte HTML.
+
+LIMIT DĹŽKY: AI má limit na dĺžku odpovede. Musíš byť EXTRÉMNE EFEKTÍVNY. Nepíš "omáčky", píš len čisté technické fakty, tabuľky a postupy.
+Ak je manuál príliš dlhý, vygeneruj detailnú "ČASŤ 1: Inštalácia a Parametre" a na konci napíš: "Pre pokračovanie napíš 'Časť 2'".
 
 VSTUP: Anglické manuály (obrázky/PDF).
 VÝSTUP: Profesionálny slovenský manuál formátovaný ako HTML kód.
@@ -32,28 +41,25 @@ VÝSTUP: Profesionálny slovenský manuál formátovaný ako HTML kód.
 ŠTRUKTÚRA DOKUMENTU (HTML):
 1. Vráť IBA HTML kód zabalený v bloku \`\`\`html ... \`\`\`.
 2. Nepíš žiadny úvodný ani záverečný text mimo tento blok.
-3. Použi CSS triedy Tailwind pre formátovanie (vysvetlené nižšie).
+3. Použi CSS triedy Tailwind pre formátovanie.
 
-POŽADOVANÝ OBSAH MANUÁLU:
-1. **Titulná strana**: Názov zariadenia, Verzia, Dátum.
-2. **Predhovor**: Krátky úvod o zariadení (preložený, profesionálny tón).
-3. **Bezpečnostné pokyny**: Zvýraznené upozornenia.
-4. **Technické parametre**: Prehľadná tabuľka.
-5. **Štruktúra Menu**: Detailný rozpis menu systému.
-6. **Chybové hlásenia**: Tabuľka (Kód chyby | Príčina | Riešenie).
-7. **Nastavenia a Konfigurácia**: Postup krok za krokom.
+POŽADOVANÝ OBSAH (Kondenzovaný):
+1. **Titulná strana**: Názov, Verzia.
+2. **Technické parametre**: Tabuľka.
+3. **Menu a Štruktúra**: Stromová štruktúra menu.
+4. **Chybové hlásenia**: Kompletná tabuľka chýb (Kód | Popis | Riešenie).
+5. **Konfigurácia**: Kľúčové nastavenia.
 
-PRAVIDLÁ FORMÁTOVANIA (Dôležité pre export do PDF):
-- Použi <div class="p-10 font-serif text-black leading-relaxed"> ako hlavný kontajner.
-- Nadpisy: <h1 class="text-3xl font-bold mb-6 border-b-2 border-black pb-2">, <h2 class="text-xl font-bold mt-8 mb-4">.
-- Tabuľky: <table class="w-full border-collapse border border-gray-400 mb-6 text-sm">.
-- Bunky tabuľky: <th class="border border-gray-400 p-2 bg-gray-100">, <td class="border border-gray-400 p-2">.
-- Odseky: <p class="mb-4 text-justify">.
-- Upozornenia: <div class="bg-yellow-100 border-l-4 border-yellow-500 p-4 mb-4 italic">.
+PRAVIDLÁ FORMÁTOVANIA (Pre PDF export):
+- Hlavný kontajner: <div class="p-10 font-serif text-black leading-relaxed text-sm"> (menšie písmo pre viac textu na stranu).
+- Nadpisy: <h1 class="text-2xl font-bold mb-4 border-b-2 border-black pb-2">.
+- Tabuľky: <table class="w-full border-collapse border border-gray-400 mb-4 text-xs">.
+- Page Break: Použi <div style="page-break-before: always;"></div> medzi hlavnými kapitolami.
 
-Prelož všetko do odbornej slovenčiny (napr. "Drive" -> "Menič", "Shaft" -> "Šachta").`;
+Prelož všetko do odbornej slovenčiny.`;
 
   } else if (mode === AnalysisMode.SCHEMATIC) {
+    thinkingBudget = 8192; // Pre schémy potrebujeme logiku
     systemInstruction = `Si Senior Elektro-Projektant a Expert na CAD systémy (EPLAN, AutoCAD Electrical).
 Používateľ potrebuje VIDIEŤ SKUTOČNÚ SCHÉMU ZAPOJENIA, nie blokový diagram.
 
@@ -78,6 +84,7 @@ Tvoja reakcia: Nakreslíš SVG, kde namiesto symbolu stýkača (K3) nakreslíš 
 Odpovedaj stručne a sústreď sa na kvalitu výkresu.`;
 
   } else {
+    thinkingBudget = 10240; // Pre logiku a diagnostiku potrebujeme veľa premýšľania
     systemInstruction = `Si Senior Elektro-Inžinier a Diagnostik.
 Analyzuj manuály a hľadaj príčiny porúch.
 Pre logické diagramy (postupnosť krokov) použi Mermaid (flowchart TD).`;
@@ -98,6 +105,19 @@ Pre logické diagramy (postupnosť krokov) použi Mermaid (flowchart TD).`;
     }
   }));
   
+  // Konfigurácia pre požiadavku
+  const requestConfig: any = {
+    systemInstruction,
+    temperature: mode === AnalysisMode.DOCUMENTATION ? 0.3 : 0.2,
+    tools: [{ googleSearch: {} }],
+    maxOutputTokens: mode === AnalysisMode.DOCUMENTATION ? 65536 : 8192 // Zvýšený limit pre dokumentáciu
+  };
+
+  // Thinking config pridáme len ak je budget > 0 (nie je podporovaný pre všetky modely/režimy rovnako, ale tu ho riadime manuálne)
+  if (thinkingBudget > 0) {
+    requestConfig.thinkingConfig = { thinkingBudget };
+  }
+
   try {
     const response = await ai.models.generateContent({
       model: modelName,
@@ -108,17 +128,10 @@ Pre logické diagramy (postupnosť krokov) použi Mermaid (flowchart TD).`;
           parts: [...manualParts, { text: prompt }] 
         }
       ],
-      config: {
-        systemInstruction,
-        temperature: mode === AnalysisMode.DOCUMENTATION ? 0.3 : 0.2, // Vyššia kreativita pre písanie textu
-        thinkingConfig: { 
-          thinkingBudget: 12288 
-        },
-        tools: [{ googleSearch: {} }]
-      }
+      config: requestConfig
     });
 
-    const text = response.text || "AI nedokázala vygenerovať odpoveď.";
+    const text = response.text || "AI nedokázala vygenerovať odpoveď (pravdepodobne bol prekročený limit dĺžky). Skúste požiadať o kratšiu časť.";
     const sources: Array<{ title: string; uri: string }> = [];
     
     const groundingChunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks;
@@ -133,6 +146,6 @@ Pre logické diagramy (postupnosť krokov) použi Mermaid (flowchart TD).`;
     return { text, sources };
   } catch (err: any) {
     console.error("Gemini Pro Error:", err);
-    throw new Error(err.message || "Chyba pri hlbokej analýze.");
+    throw new Error(err.message || "Chyba pri hlbokej analýze. Skúste skrátiť požiadavku.");
   }
 };
