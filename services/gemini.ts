@@ -23,17 +23,37 @@ export const analyzeManual = async (
   let systemInstruction = "";
 
   if (mode === AnalysisMode.DOCUMENTATION) {
-    systemInstruction = `Si Certifikačný Inžinier a Technický Spisovateľ.
-Tvojou úlohou je vygenerovať profesionálnu technickú dokumentáciu.
+    systemInstruction = `Si Profesionálny Technický Spisovateľ (Technical Writer) a Prekladateľ pre výťahové systémy.
+Tvojou úlohou NIE JE chatovať, ale VYGENEROVAŤ KOMPLETNÝ MANUÁL vo formáte HTML.
 
-POKYNY:
-1. Formálna štruktúra (Markdown).
-2. Ak používateľ žiada zmenu zapojenia, zapracuj ju ako "As-Built" stav.
-3. Použi placeholdery {{VÝROBCA}}, {{S/N}} pre chýbajúce údaje.
-4. Odporúčaná osnova: Identifikácia, Bezpečnosť, Funkcia, Obsluha, Údržba.`;
+VSTUP: Anglické manuály (obrázky/PDF).
+VÝSTUP: Profesionálny slovenský manuál formátovaný ako HTML kód.
+
+ŠTRUKTÚRA DOKUMENTU (HTML):
+1. Vráť IBA HTML kód zabalený v bloku \`\`\`html ... \`\`\`.
+2. Nepíš žiadny úvodný ani záverečný text mimo tento blok.
+3. Použi CSS triedy Tailwind pre formátovanie (vysvetlené nižšie).
+
+POŽADOVANÝ OBSAH MANUÁLU:
+1. **Titulná strana**: Názov zariadenia, Verzia, Dátum.
+2. **Predhovor**: Krátky úvod o zariadení (preložený, profesionálny tón).
+3. **Bezpečnostné pokyny**: Zvýraznené upozornenia.
+4. **Technické parametre**: Prehľadná tabuľka.
+5. **Štruktúra Menu**: Detailný rozpis menu systému.
+6. **Chybové hlásenia**: Tabuľka (Kód chyby | Príčina | Riešenie).
+7. **Nastavenia a Konfigurácia**: Postup krok za krokom.
+
+PRAVIDLÁ FORMÁTOVANIA (Dôležité pre export do PDF):
+- Použi <div class="p-10 font-serif text-black leading-relaxed"> ako hlavný kontajner.
+- Nadpisy: <h1 class="text-3xl font-bold mb-6 border-b-2 border-black pb-2">, <h2 class="text-xl font-bold mt-8 mb-4">.
+- Tabuľky: <table class="w-full border-collapse border border-gray-400 mb-6 text-sm">.
+- Bunky tabuľky: <th class="border border-gray-400 p-2 bg-gray-100">, <td class="border border-gray-400 p-2">.
+- Odseky: <p class="mb-4 text-justify">.
+- Upozornenia: <div class="bg-yellow-100 border-l-4 border-yellow-500 p-4 mb-4 italic">.
+
+Prelož všetko do odbornej slovenčiny (napr. "Drive" -> "Menič", "Shaft" -> "Šachta").`;
 
   } else if (mode === AnalysisMode.SCHEMATIC) {
-    // <--- TU JE HLAVNÁ ZMENA PRE VÝKRESY
     systemInstruction = `Si Senior Elektro-Projektant a Expert na CAD systémy (EPLAN, AutoCAD Electrical).
 Používateľ potrebuje VIDIEŤ SKUTOČNÚ SCHÉMU ZAPOJENIA, nie blokový diagram.
 
@@ -90,7 +110,7 @@ Pre logické diagramy (postupnosť krokov) použi Mermaid (flowchart TD).`;
       ],
       config: {
         systemInstruction,
-        temperature: mode === AnalysisMode.SCHEMATIC ? 0.1 : 0.2, // Nízka teplota pre presné kreslenie
+        temperature: mode === AnalysisMode.DOCUMENTATION ? 0.3 : 0.2, // Vyššia kreativita pre písanie textu
         thinkingConfig: { 
           thinkingBudget: 12288 
         },
