@@ -12,6 +12,15 @@ interface ChatInterfaceProps {
 
 // Komponent pre zobrazenie schémy na celú obrazovku (SVG CAD)
 const CADViewerModal = ({ content, onClose }: { content: string, onClose: () => void }) => {
+  // Pridaný poslucháč pre ESC
+  useEffect(() => {
+    const handleEsc = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', handleEsc);
+    return () => window.removeEventListener('keydown', handleEsc);
+  }, [onClose]);
+
   return (
     <div className="fixed inset-0 z-[200] bg-slate-950 flex flex-col animate-in fade-in duration-200">
       <div className="bg-slate-900 border-b border-slate-700 p-4 flex justify-between items-center shadow-md">
@@ -21,11 +30,11 @@ const CADViewerModal = ({ content, onClose }: { content: string, onClose: () => 
           </div>
           <div>
             <h3 className="text-white font-bold text-sm">CAD Prehliadač</h3>
-            <p className="text-[10px] text-slate-400">Režim zobrazenia vektorovej grafiky</p>
+            <p className="text-[10px] text-slate-400">Režim zobrazenia vektorovej grafiky (ESC pre zatvorenie)</p>
           </div>
         </div>
-        <button onClick={onClose} className="bg-slate-800 hover:bg-slate-700 text-white px-4 py-2 rounded-lg text-xs font-bold transition-all border border-slate-700">
-          ZAVRIEŤ PREHLIADAČ ✕
+        <button onClick={onClose} className="bg-slate-800 hover:bg-slate-700 text-white px-4 py-2 rounded-lg text-xs font-bold transition-all border border-slate-700 hover:border-slate-500">
+          ZAVRIEŤ (ESC) ✕
         </button>
       </div>
       <div className="flex-1 overflow-auto p-8 flex items-center justify-center bg-[#1e293b] relative">
@@ -42,6 +51,15 @@ const CADViewerModal = ({ content, onClose }: { content: string, onClose: () => 
 // NOVÝ: Komponent pre zobrazenie dokumentácie (A4 štýl)
 const DocumentReaderModal = ({ content, onClose }: { content: string, onClose: () => void }) => {
   const printRef = useRef<HTMLDivElement>(null);
+
+  // Pridaný poslucháč pre ESC
+  useEffect(() => {
+    const handleEsc = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', handleEsc);
+    return () => window.removeEventListener('keydown', handleEsc);
+  }, [onClose]);
 
   const handlePrint = () => {
     const printContent = printRef.current?.innerHTML;
@@ -87,7 +105,7 @@ const DocumentReaderModal = ({ content, onClose }: { content: string, onClose: (
           </div>
           <div>
             <h3 className="text-white font-bold text-sm">Dokumentácia</h3>
-            <p className="text-[10px] text-slate-400">Náhľad pred tlačou</p>
+            <p className="text-[10px] text-slate-400">Náhľad pred tlačou (ESC pre zatvorenie)</p>
           </div>
         </div>
         <div className="flex gap-2">
@@ -95,8 +113,8 @@ const DocumentReaderModal = ({ content, onClose }: { content: string, onClose: (
              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003 3h-10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
              STIAHNUŤ PDF / TLAČIŤ
            </button>
-           <button onClick={onClose} className="bg-slate-800 hover:bg-slate-700 text-white px-4 py-2 rounded-lg text-xs font-bold transition-all border border-slate-700">
-             ZAVRIEŤ ✕
+           <button onClick={onClose} className="bg-slate-800 hover:bg-red-600 hover:border-red-500 text-white px-4 py-2 rounded-lg text-xs font-bold transition-all border border-slate-700">
+             ZAVRIEŤ (ESC) ✕
            </button>
         </div>
       </div>
@@ -167,12 +185,30 @@ const MessageItem = memo(({ msg, onZoom, onOpenDoc }: MessageItemProps) => {
       else if (fullBlock.startsWith('```html')) {
         const htmlCode = fullBlock.replace('```html\n', '').replace('```', '');
         
-        const downloadFile = () => {
+        const downloadHtml = () => {
            const blob = new Blob([htmlCode], { type: 'text/html;charset=utf-8' });
            const url = URL.createObjectURL(blob);
            const a = document.createElement('a');
            a.href = url;
-           a.download = `manual_export_${Date.now()}.html`;
+           a.download = `manual_web_${Date.now()}.html`;
+           document.body.appendChild(a);
+           a.click();
+           document.body.removeChild(a);
+           URL.revokeObjectURL(url);
+        };
+
+        const downloadWord = () => {
+           const header = `
+           <html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'>
+           <head><meta charset='utf-8'><title>Export</title></head><body>`;
+           const footer = "</body></html>";
+           const sourceHTML = header + htmlCode + footer;
+           
+           const blob = new Blob(['\ufeff', sourceHTML], { type: 'application/msword' });
+           const url = URL.createObjectURL(blob);
+           const a = document.createElement('a');
+           a.href = url;
+           a.download = `manual_editovatelny_${Date.now()}.doc`;
            document.body.appendChild(a);
            a.click();
            document.body.removeChild(a);
@@ -182,26 +218,33 @@ const MessageItem = memo(({ msg, onZoom, onOpenDoc }: MessageItemProps) => {
         parts.push(
           <div key={`doc-${match.index}`} className="my-6">
             <div className="bg-slate-800 border border-slate-700 rounded-2xl p-6 shadow-xl flex flex-col items-center text-center space-y-4 max-w-sm mx-auto">
-               <div className="w-16 h-16 bg-purple-600/20 text-purple-400 rounded-full flex items-center justify-center border border-purple-500/30">
-                 <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+               <div className="w-16 h-16 bg-blue-600/20 text-blue-400 rounded-full flex items-center justify-center border border-blue-500/30">
+                 <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
                </div>
                <div>
-                 <h3 className="text-lg font-bold text-white">Manuál Vygenerovaný</h3>
-                 <p className="text-xs text-slate-400 mt-1">Súbor je pripravený. Pre veľké manuály odporúčame stiahnuť súbor namiesto náhľadu.</p>
+                 <h3 className="text-lg font-bold text-white">Manuál Pripravený</h3>
+                 <p className="text-xs text-slate-400 mt-1">Vyberte formát pre stiahnutie.</p>
                </div>
                <div className="flex flex-col gap-2 w-full">
                   <button 
-                    onClick={downloadFile}
-                    className="w-full bg-green-600 hover:bg-green-500 text-white font-bold py-3 rounded-xl transition-all shadow-lg active:scale-95 flex items-center justify-center gap-2"
+                    onClick={downloadWord}
+                    className="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 rounded-xl transition-all shadow-lg active:scale-95 flex items-center justify-center gap-2"
                   >
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003 3h-10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
-                    STIAHNUŤ SÚBOR (Bezpečné)
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+                    STIAHNUŤ PRE WORD (.DOC)
+                  </button>
+                  <button 
+                    onClick={downloadHtml}
+                    className="w-full bg-slate-700 hover:bg-slate-600 text-slate-300 hover:text-white font-bold py-2 rounded-xl transition-all border border-slate-600 active:scale-95 text-xs flex items-center justify-center gap-2"
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9" /></svg>
+                    STIAHNUŤ WEB (.HTML)
                   </button>
                   <button 
                     onClick={() => onOpenDoc(htmlCode)}
-                    className="w-full bg-slate-700 hover:bg-purple-600 text-slate-300 hover:text-white font-bold py-2 rounded-xl transition-all border border-slate-600 hover:border-purple-500 active:scale-95 text-xs"
+                    className="w-full text-slate-500 hover:text-white py-1 text-[10px] underline decoration-slate-600 hover:decoration-white"
                   >
-                    OTVORIŤ NÁHĽAD (Riskantné pre veľké súbory)
+                    Len otvoriť náhľad
                   </button>
                </div>
             </div>
